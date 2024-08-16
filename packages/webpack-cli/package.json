@@ -1,0 +1,25 @@
+{
+  "name": "webpack-cli",
+  "version": "1.0.0",
+  "description": "",
+  "bin": {
+    "webpack-cli": "./bin/cli.js"
+  },
+  "main": "./lib/index.js",
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "colorette": "^2.0.14",
+    "commander": "^10.0.1",
+    "fastest-levenshtein": "^1.0.12",
+    "import-local": "^3.0.2"
+  }
+}
