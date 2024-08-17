@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "webpack": "workspace:^",
     "webpack-cli": "workspace:^"
   }
 }
