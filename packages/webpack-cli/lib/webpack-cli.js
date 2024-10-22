@@ -1085,6 +1085,9 @@ class WebpackCLI {
         );
       } else {
         // 命令不是内置命令，查找是否为外部命令（如 @webpack-cli/serve）
+
+        // 尝试在 externalBuiltInCommandsInfo 中查找与 commandName 匹配的命令
+        // 这里的匹配逻辑不仅检查命令名称是否相同，还会检查命令的别名（alias）
         const builtInExternalCommandInfo = externalBuiltInCommandsInfo.find(
           (externalBuiltInCommandInfo) =>
             getCommandName(externalBuiltInCommandInfo.name) === commandName ||
@@ -1092,16 +1095,25 @@ class WebpackCLI {
               ? externalBuiltInCommandInfo.alias.includes(commandName)
               : externalBuiltInCommandInfo.alias === commandName)
         );
+
+        // 确定要使用的包名
         let pkg;
+        // 如果找到了相应的外部命令信息，则从中提取 pkg（包名）
         if (builtInExternalCommandInfo) {
           ({ pkg } = builtInExternalCommandInfo);
         } else {
+          // 没有找到匹配的内置外部命令，则假设 commandName 就是包名
           pkg = commandName;
         }
+
+        // 首先，排除 webpack-cli，因为这是 CLI 的核心包，必然存在
+        // 检查该包是否已经安装
         if (pkg !== "webpack-cli" && !this.checkPackageExists(pkg)) {
           if (!allowToInstall) {
             return;
           }
+
+          // 安装这个包，安装前会输出一条提示信息，告知用户需要安装该包才能使用此命令。
           pkg = await this.doInstall(pkg, {
             preMessage: () => {
               this.logger.error(
@@ -1112,13 +1124,19 @@ class WebpackCLI {
             },
           });
         }
+
+        // 尝试加载命令
         let loadedCommand;
         try {
+          // 通过 require 或 import 动态加载命令模块
           loadedCommand = await this.tryRequireThenImport(pkg, false);
         } catch (error) {
           // Ignore, command is not installed
+          // 如果加载失败，忽略该命令
           return;
         }
+
+        // 实例化并执行命令
         let command;
         try {
           command = new loadedCommand();
@@ -1574,7 +1592,7 @@ class WebpackCLI {
         this.logger.error("No commands found to run");
         process.exit(2);
       }
-      // Command and options
+      // 解析传入的命令行参数
       const { operands, unknown } = this.program.parseOptions(program.args);
       /**获取默认要执行的命令名称，默认命令为 build */
       const defaultCommandToRun = getCommandName(buildCommandOptions.name);
@@ -1646,10 +1664,12 @@ class WebpackCLI {
         //  检查 operand 是否是一个有效的文件路径
         const isEntrySyntax = fs.existsSync(operand);
         if (isEntrySyntax) {
+          // 如果是文件路径，则使用默认命令处理
           commandToRun = defaultCommandToRun;
           commandOperands = operands;
           await loadCommandByName(commandToRun);
         } else {
+          // 输出未知命令的错误信息，并使用 fastest-levenshtein 来进行模糊匹配，给出可能的拼写建议
           this.logger.error(`Unknown command or entry '${operand}'`);
           const levenshtein = require("fastest-levenshtein");
           const found = knownCommands.find(

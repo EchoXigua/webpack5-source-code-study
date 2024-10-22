@@ -1,6 +1,6 @@
 {
   "name": "webpack",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "description": "",
   "main": "./lib/index.js",
   "bin": "bin/webpack.js",
@@ -11,6 +11,15 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "graceful-fs": "^4.2.11"
+    "graceful-fs": "^4.2.11",
+    "webpack-cli": "^5.1.4"
+  },
+  "peerDependencies":{
+    "webpack-cli":"5.x.x"
+  },
+  "peerDependenciesMeta": {
+    "webpack-cli": {
+      "optional": true
+    }
   }
 }
