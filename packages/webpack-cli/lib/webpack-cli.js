@@ -414,7 +414,17 @@ class WebpackCLI {
     return info;
   }
 
+  /**
+   * 用于在命令行界面中创建命令的方法，主要用于配置和初始化新的命令
+   * 主要功能是检查和安装依赖、设置命令选项和描述、以及定义命令执行时的行为
+   *
+   * @param {*} commandOptions
+   * @param {*} options
+   * @param {*} action
+   * @returns
+   */
   async makeCommand(commandOptions, options, action) {
+    // 检查命令是否已经加载
     const alreadyLoaded = this.program.commands.find(
       (command) =>
         command.name() === commandOptions.name.split(" ")[0] ||
@@ -423,10 +433,14 @@ class WebpackCLI {
     if (alreadyLoaded) {
       return;
     }
+
+    // 创建一个新的命令，并传入命令的名称和一些选项
     const command = this.program.command(commandOptions.name, {
       hidden: commandOptions.hidden,
       isDefault: commandOptions.isDefault,
     });
+
+    //  设置命令的描述和用法
     if (commandOptions.description) {
       command.description(
         commandOptions.description,
@@ -436,20 +450,28 @@ class WebpackCLI {
     if (commandOptions.usage) {
       command.usage(commandOptions.usage);
     }
+    // 设置命令的别名
     if (Array.isArray(commandOptions.alias)) {
       command.aliases(commandOptions.alias);
     } else {
       command.alias(commandOptions.alias);
     }
+    // 设置命令的包信息，不存在默认为 webpack-cli
     if (commandOptions.pkg) {
       command.pkg = commandOptions.pkg;
     } else {
       command.pkg = "webpack-cli";
     }
+
+    // 当前是否处于帮助模式
     const { forHelp } = this.program;
+    // 默认所有的依赖已经安装
     let allDependenciesInstalled = true;
     if (commandOptions.dependencies && commandOptions.dependencies.length > 0) {
+      // 遍历所有的依赖，检查每个依赖是否安装
+      // 如果依赖不存在且处于帮助模式，设置为 allDependenciesInstalled 为 false，表示不是所有依赖都已安装
       for (const dependency of commandOptions.dependencies) {
+        // 检查包是否存在
         const isPkgExist = this.checkPackageExists(dependency);
         if (isPkgExist) {
           continue;
@@ -457,7 +479,13 @@ class WebpackCLI {
           allDependenciesInstalled = false;
           continue;
         }
+
+        // 判断是否需要跳过安装当前依赖
         let skipInstallation = false;
+
+        /**
+         * 有两个条件决定是否跳过安装：
+         */
         // Allow to use `./path/to/webpack.js` outside `node_modules`
         if (dependency === WEBPACK_PACKAGE && WEBPACK_PACKAGE_IS_CUSTOM) {
           skipInstallation = true;
@@ -472,7 +500,10 @@ class WebpackCLI {
         if (skipInstallation) {
           continue;
         }
+
+        // 安装确实的依赖
         await this.doInstall(dependency, {
+          // 在安装前打印出错误信息，提示用户需要安装哪个包
           preMessage: () => {
             this.logger.error(
               `For using '${this.colors.green(
@@ -485,13 +516,18 @@ class WebpackCLI {
         });
       }
     }
+
+    // 这段代码主要处理命令行工具中与选项相关的逻辑
     if (options) {
+      // 处理配置项为函数的清空
       if (typeof options === "function") {
         if (
           forHelp &&
           !allDependenciesInstalled &&
           commandOptions.dependencies
         ) {
+          // 帮助模式下
+          // 告知用户需要安装哪些依赖才能看到所有可用选项
           command.description(
             `${
               commandOptions.description
@@ -499,15 +535,22 @@ class WebpackCLI {
               .map((dependency) => `'${dependency}'`)
               .join(", ")}.`
           );
+          // 设置为一个空数组，以避免后续的选项处理
           options = [];
         } else {
           options = await options();
         }
       }
+
+      // 处理选项数组
       for (const option of options) {
+        // 注册这些选项到命令中
         this.makeOption(command, option);
       }
     }
+
+    // 将用户提供的 action 函数绑定到该命令上
+    // 这意味着当用户在命令行中执行该命令时，将会调用 action 函数
     command.action(action);
     return command;
   }

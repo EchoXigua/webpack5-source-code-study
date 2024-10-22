@@ -11,8 +11,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "graceful-fs": "^4.2.11",
-    "webpack-cli": "^5.1.4"
+    "graceful-fs": "^4.2.11"
   },
   "peerDependencies":{
     "webpack-cli":"5.x.x"

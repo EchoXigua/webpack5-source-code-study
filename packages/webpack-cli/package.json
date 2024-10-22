@@ -19,7 +19,7 @@
   "dependencies": {
     "@webpack-cli/configtest": "^2.1.1",
     "@webpack-cli/info": "^2.0.2",
-    "@webpack-cli/serve": "^2.0.5",
+    "@webpack-cli/serve": "workspace:^",
     "colorette": "^2.0.14",
     "commander": "^10.0.1",
     "cross-spawn": "^7.0.3",
