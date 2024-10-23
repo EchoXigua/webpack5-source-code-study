@@ -66,6 +66,12 @@ const mergeExports = (obj, exports) => {
 const fn = lazyFunction(() => require("./webpack"));
 
 module.exports = mergeExports(fn, {
+  get webpack() {
+    return require("./webpack");
+  },
+  get version() {
+    return /** @type {string} */ (require("../package.json").version);
+  },
   get cli() {
     return require("./cli");
   },
