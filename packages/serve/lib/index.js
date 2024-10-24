@@ -31,8 +31,10 @@ class ServeCommand {
       },
       async () => {
         let devServerFlags = [];
+        // 将webpack注册到webpack-cli中
         cli.webpack = await cli.loadWebpack();
         try {
+          // 加载 webpack-dev-server 相关的选项
           devServerFlags = loadDevServerOptions();
         } catch (error) {
           cli.logger.error(
@@ -40,35 +42,59 @@ class ServeCommand {
           );
           process.exit(2);
         }
+        // 获取webpack-cli 所有内置选项
         const builtInOptions = cli.getBuiltInOptions();
+
+        // 合并cli 和 dev-server 的配置
         return [...builtInOptions, ...devServerFlags];
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+      /**
+       * 第二个参数、第三个参数，我们可以发现里面都去获取了cli配置以及dev-server 的配置
+       * 看是有重复执行，实则两部分职责不同，都是必要的，无法合并成一个处理步骤
+       *
+       * - 第二个参数主要是用于命令注册，获取并合并 webpack 和 webpack-dev-server 的配置选项，供 CLI 工具识别
+       * - 第三个参数主要是实际运行命令时，解析用户传入的选项，
+       * 分别处理 webpack 和 devServer 的配置，确保正确启动 Webpack 和 webpack-dev-server
+       */
+
+      /**
+       * 这哥函数为根据对应的命令触发响应的action
+       * 这段代码是为 webpack-cli 中的 serve 命令提供的一个核心执行逻辑
+       *
+       * 主要负责处理命令行传入的选项 (entries 和 options)，创建 Webpack 编译器 (compiler)，并启动 webpack-dev-server
+       * @returns
+       */
       async (entries, options) => {
+        // 获取 webpack-cli 内置的 CLI 选项
         const builtInOptions = cli.getBuiltInOptions();
         let devServerFlags = [];
         try {
+          // 尝试加载 webpack-dev-server 的相关选项
           devServerFlags = loadDevServerOptions();
         } catch (error) {
           // Nothing, to prevent future updates
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+        // 分类处理 CLI 选项
+
+        /** 存放 Webpack 内置的 CLI 选项 */
         const webpackCLIOptions = {};
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        /** 存放 webpack-dev-server 的选项 */
         const devServerCLIOptions = {};
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        /** 存放需要额外处理的选项的处理器函数，这些处理器稍后会执行 */
         const processors = [];
+
+        // 遍历选项进行分类处理
         for (const optionName in options) {
           const kebabedOption = cli.toKebabCase(optionName);
           const isBuiltInOption = builtInOptions.find(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (builtInOption) => builtInOption.name === kebabedOption
           );
           if (isBuiltInOption) {
             webpackCLIOptions[optionName] = options[optionName];
           } else {
             const needToProcess = devServerFlags.find(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               (devServerOption) =>
                 devServerOption.name === kebabedOption &&
                 devServerOption.processor
