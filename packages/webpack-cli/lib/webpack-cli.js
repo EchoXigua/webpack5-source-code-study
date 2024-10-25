@@ -62,6 +62,15 @@ class WebpackCLI {
     }
     return str.charAt(0).toUpperCase() + str.slice(1);
   }
+  /**
+   * 将一个字符串转换为 kebab-case 格式，将驼峰转为连字符
+   *
+   * @example
+   * 输入 "camelCase"
+   * 正则表达式会匹配 "mC"，替换为 "m-C",通过转小写
+   * 最终输出为 "camel-case"
+   * @returns
+   */
   toKebabCase(str) {
     return str.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
   }
@@ -1785,6 +1794,13 @@ class WebpackCLI {
     });
     await this.program.parseAsync(args, parseOptions);
   }
+
+  /**
+   * 方法负责加载 Webpack 配置文件并处理配置的合并、解析、继承等操作
+   * 此方法旨在灵活支持多种配置格式（如 .js、.ts 等）、递归合并多个配置文件，并处理配置文件中的 extends 字段
+   * @param {*} options
+   * @returns
+   */
   async loadConfig(options) {
     const disableInterpret =
       typeof options.disableInterpret !== "undefined" &&
@@ -2274,55 +2290,103 @@ class WebpackCLI {
     }
     return config;
   }
+
+  /**
+   * 检查传入的 error 是否是 Webpack 配置或选项的验证错误
+   * 此类错误通常源于配置选项不符合 Webpack 的期望，例如提供了无效的配置值
+   */
   isValidationError(error) {
     return (
       error instanceof this.webpack.ValidationError ||
       error.name === "ValidationError"
     );
   }
+  /**
+   * 用于创建并配置 Webpack 编译器实例
+   * 它通过 options 来加载和生成配置，创建编译器实例，并处理可能发生的错误
+   *
+   * @param {*} options
+   * @param {*} callback
+   * @returns
+   */
   async createCompiler(options, callback) {
+    // 这里在配置环境变量
     if (typeof options.defineProcessEnvNodeEnv === "string") {
-      // TODO: This should only set NODE_ENV for the runtime not for the config too. Change this during next breaking change.
+      // TODO 注释：标记一个未来的改进。当前 NODE_ENV 被设置在整个配置生命周期中，
+      // 而注释建议仅在运行时设置它，以避免影响 Webpack 配置中的环境判断。
       process.env.NODE_ENV = options.defineProcessEnvNodeEnv;
     } else if (typeof options.nodeEnv === "string") {
       process.env.NODE_ENV = options.nodeEnv;
     }
+
+    // 加载基础 Webpack 配置
     let config = await this.loadConfig(options);
+
+    // 构建最终的 Webpack 配置
     config = await this.buildConfig(config, options);
     let compiler;
     try {
+      // 创建webpack 编译器
+      // 这个this.webpack 会在 this.loadWebpack 被调用的加载
+      // 如果是build watch 会在当前webpack-cli 中调用 loadWebpack
+      // 如果是serve 则会在加载 @webpack-cli/serve这个包中 调用 apply 方法中调用 loadWebpack
       compiler = this.webpack(
         config.options,
+
+        // 当传入 callback 函数时，通过包装函数来处理编译器的回调
         callback
           ? (error, stats) => {
+              // 如果编译过程中遇到错误，且是验证错误
+              // 记录错误消息，并通过 process.exit(2) 退出进程
               if (error && this.isValidationError(error)) {
                 this.logger.error(error.message);
                 process.exit(2);
               }
+
+              // 否则直接调用 callback 并传递 error 和 stats，将错误或结果传给外部代码
               callback(error, stats);
             }
           : callback
       );
       // @ts-expect-error error type assertion
     } catch (error) {
+      // 捕获创建编译器时的所有错误
+
+      // 如果错误是由参数或配置无效引发，则记录错误信息
       if (this.isValidationError(error)) {
         this.logger.error(error.message);
       } else {
+        // 如果错误是其他类型，则直接记录整个错误对象
         this.logger.error(error);
       }
+
+      // 退出进程
       process.exit(2);
     }
     return compiler;
   }
+
+  /**
+   * 判断当前 Webpack 编译器（compiler）是否需要监视标准输入（stdin）
+   * 以支持热更新或开发中的自动重启等功能
+   */
   needWatchStdin(compiler) {
+    // 检查是否为多编译器模式
     if (this.isMultipleCompiler(compiler)) {
+      // 这种模式下 compiler.compilers 是一个编译器数组
       return Boolean(
+        // 遍历其 compilers 数组，逐个检查每个编译器的 watchOptions 设置
+        // 只要有一个编译器实例的 watchOptions.stdin 为 true，
+        // 整个 needWatchStdin 方法就会返回 true，表示需要监视 stdin
         compiler.compilers.some(
           (compiler) =>
             compiler.options.watchOptions && compiler.options.watchOptions.stdin
         )
       );
     }
+
+    // 单编译器情况
+    // 直接检查 compiler.options.watchOptions.stdin
     return Boolean(
       compiler.options.watchOptions && compiler.options.watchOptions.stdin
     );
