@@ -75,4 +75,11 @@ module.exports = mergeExports(fn, {
   get cli() {
     return require("./cli");
   },
+  // TODO webpack 6 deprecate
+  get WebpackOptionsValidationError() {
+    return require("schema-utils").ValidationError;
+  },
+  get ValidationError() {
+    return require("schema-utils").ValidationError;
+  },
 });

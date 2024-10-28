@@ -1,3 +1,8 @@
+"use strict";
+
+const path = require("path");
+const webpackSchema = require("../schemas/WebpackOptions.json");
+
 const getArguments = (schema = webpackSchema) => {
   /** @type {Flags} */
   const flags = {};

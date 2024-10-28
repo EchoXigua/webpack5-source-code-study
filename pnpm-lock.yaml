@@ -66,6 +66,9 @@ importers:
 
   packages/webpack:
     dependencies:
+      schema-utils:
+        specifier: ^4.2.0
+        version: 4.2.0
       webpack-cli:
         specifier: 5.x.x
         version: 5.1.4(webpack-dev-server@packages+webpack-dev-server)(webpack@5.93.0)
@@ -100,6 +103,12 @@ importers:
       import-local:
         specifier: ^3.0.2
         version: 3.2.0
+      interpret:
+        specifier: ^3.1.1
+        version: 3.1.1
+      rechoir:
+        specifier: ^0.8.0
+        version: 0.8.0
     devDependencies:
       webpack:
         specifier: workspace:^
@@ -6487,18 +6496,11 @@ packages:
     engines: {node: '>= 0.4'}
     dev: true
 
-  /is-core-module@2.15.0:
-    resolution: {integrity: sha512-Dd+Lb2/zvk9SKy1TGCt1wFJFo/MWBPMX5x7KcvLajWTGuomczdQX61PvY5yK6SVACwpoexWo81IfFyoKY2QnTA==}
-    engines: {node: '>= 0.4'}
-    dependencies:
-      hasown: 2.0.2
-
   /is-core-module@2.15.1:
     resolution: {integrity: sha512-z0vtXSwucUJtANQWldhbtbt7BnL0vxiFjIdDLAatwhDYty2bad6s+rijD6Ri4YuYJubLzIJLUidCh09e1djEVQ==}
     engines: {node: '>= 0.4'}
     dependencies:
       hasown: 2.0.2
-    dev: true
 
   /is-data-view@1.0.1:
     resolution: {integrity: sha512-AHkaJrsUVW6wq6JS8y3JnM/GJF/9cf+k20+iDzlSaJrinEo5+7vRiteOSwBhHRiAyQATN1AmY4hwzxJKPmYf+w==}
@@ -7917,7 +7919,7 @@ packages:
     engines: {node: '>=10'}
     dependencies:
       hosted-git-info: 4.1.0
-      is-core-module: 2.15.0
+      is-core-module: 2.15.1
       semver: 7.6.3
       validate-npm-package-license: 3.0.4
     dev: true
@@ -8347,6 +8349,7 @@ packages:
   /pify@4.0.1:
     resolution: {integrity: sha512-uB80kBFb/tfd68bVleG9T5GGsGPjJrLAUpR5PZIrhBnIaRTQRjqdJSsIKkOP6OAIFbj7GOrcudc5pNjZ+geV2g==}
     engines: {node: '>=6'}
+    requiresBuild: true
     dev: true
 
   /pirates@4.0.6:
@@ -8839,7 +8842,7 @@ packages:
     resolution: {integrity: sha512-oKWePCxqpd6FlLvGV1VU0x7bkPmmCNolxzjMf4NczoDnQcIWrAF+cPtZn5i6n+RfD2d9i0tzpKnG6Yk168yIyw==}
     hasBin: true
     dependencies:
-      is-core-module: 2.15.0
+      is-core-module: 2.15.1
       path-parse: 1.0.7
       supports-preserve-symlinks-flag: 1.0.0
 
