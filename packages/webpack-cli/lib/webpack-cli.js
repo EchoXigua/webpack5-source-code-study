@@ -1802,26 +1802,49 @@ class WebpackCLI {
    * @returns
    */
   async loadConfig(options) {
+    /** 是否禁用 interpret 插件的自动模块解析功能 */
     const disableInterpret =
       typeof options.disableInterpret !== "undefined" &&
       options.disableInterpret;
+
+    /**
+     * interpret 用于处理 JavaScript 变体（如 TypeScript、CoffeeScript）的配置文件扩展名解析
+     */
     const interpret = require("interpret");
+
+    /**
+     * 用于动态加载并解析 webpack 的配置文件
+     * @param {*} configPath 配置文件的路径
+     * @param {*} argv 命令行参数对象
+     * @returns
+     */
     const loadConfigByPath = async (configPath, argv = {}) => {
+      // 配置文件的扩展名，转换为小写以便统一处理
       const ext = path.extname(configPath).toLowerCase();
+
+      // 检查当前扩展名是否支持
+      // interpret.jsVariants 包含了各种 JavaScript 变体的文件扩展名
       let interpreted = Object.keys(interpret.jsVariants).find(
         (variant) => variant === ext
       );
-      // Fallback `.cts` to `.ts`
+
       // TODO implement good `.mts` support after https://github.com/gulpjs/rechoir/issues/43
       // For ESM and `.mts` you need to use: 'NODE_OPTIONS="--loader ts-node/esm" webpack-cli --config ./webpack.config.mts'
+      // 如果扩展名是 .cts（TypeScript 的 CommonJS 版本），则将其设置为 .ts
+      // 这是一个 Fallback 处理，因为 .cts 扩展名默认不会被 interpret.jsVariants 检测到
       if (!interpreted && /\.cts$/.test(ext)) {
         interpreted = interpret.jsVariants[".ts"];
       }
+
       if (interpreted && !disableInterpret) {
+        // 使用 rechoir 库的 prepare 方法来确保加载配置文件所需的模块
         const rechoir = require("rechoir");
         try {
           rechoir.prepare(interpret.extensions, configPath);
         } catch (error) {
+          // 如果加载失败（如缺少相关模块），会捕获错误并显示详细的错误信息，
+          // 并输出所有失败原因，然后退出程序
+
           if (error === null || error === void 0 ? void 0 : error.failures) {
             this.logger.error(`Unable load '${configPath}'`);
             this.logger.error(error.message);
@@ -1835,7 +1858,9 @@ class WebpackCLI {
           process.exit(2);
         }
       }
+
       let options;
+      /** 标记模块类型 */
       let moduleType = "unknown";
       switch (ext) {
         case ".cjs":
@@ -1847,7 +1872,9 @@ class WebpackCLI {
           moduleType = "esm";
           break;
       }
+
       try {
+        // 动态加载配置文件
         options = await this.tryRequireThenImport(
           configPath,
           false,
@@ -1855,6 +1882,7 @@ class WebpackCLI {
         );
         // @ts-expect-error error type assertion
       } catch (error) {
+        // 如果发生错误，会检查错误类型是否为验证错误，并输出相应的错误信息，最后退出程序
         this.logger.error(`Failed to load '${configPath}' config`);
         if (this.isValidationError(error)) {
           this.logger.error(error.message);
@@ -1863,65 +1891,93 @@ class WebpackCLI {
         }
         process.exit(2);
       }
+
+      // 如果加载的配置文件没有默认导出 options，则显示错误信息，并退出程序
+      // 这确保配置文件具有有效的导出内容。
       if (!options) {
         this.logger.error(
           `Failed to load '${configPath}' config. Unable to find default export.`
         );
         process.exit(2);
       }
+
+      // 导出的是数组
       if (Array.isArray(options)) {
-        // reassign the value to assert type
         const optionsArray = options;
         await Promise.all(
+          // 遍历数组中的每个选项
           optionsArray.map(async (_, i) => {
+            // 检查是否为 promise
             if (this.isPromise(optionsArray[i])) {
               optionsArray[i] = await optionsArray[i];
             }
-            // `Promise` may return `Function`
+
+            // 检查是否为函数，promise 可能返回函数
             if (this.isFunction(optionsArray[i])) {
-              // when config is a function, pass the env from args to the config function
+              // 当config是一个函数时，从args传递env给config函数
               optionsArray[i] = await optionsArray[i](argv.env, argv);
             }
           })
         );
         options = optionsArray;
       } else {
+        // 和上面数组为一样的处理
         if (this.isPromise(options)) {
           options = await options;
         }
-        // `Promise` may return `Function`
         if (this.isFunction(options)) {
-          // when config is a function, pass the env from args to the config function
           options = await options(argv.env, argv);
         }
       }
+
       const isObject = (value) => typeof value === "object" && value !== null;
+      // 检查 options 是否为对象或数组
       if (!isObject(options) && !Array.isArray(options)) {
+        // 如果不是，则显示错误信息，表示配置文件无效，并退出程序
         this.logger.error(`Invalid configuration in '${configPath}'`);
         process.exit(2);
       }
+
+      // 返回一个包含 options 和 configPath 的对象
       return { options, path: configPath };
     };
+
+    /**
+     * 用于存储加载的配置数据
+     * - options: 保存最终的配置选项
+     * - path：使用 WeakMap 存储每个配置对象的文件路径，便于跟踪配置来源
+     */
     const config = {
       options: {},
       path: new WeakMap(),
     };
+
+    // config 为数组
     if (options.config && options.config.length > 0) {
+      // 遍历每个配置路径,加载每个路径的配置文件
       const loadedConfigs = await Promise.all(
         options.config.map((configPath) =>
           loadConfigByPath(path.resolve(configPath), options.argv)
         )
       );
+
       config.options = [];
+      // 处理用户指定的多个 Webpack 配置文件路径（即 configPath 数组）
+      // loadedConfigs 为每个配置文件的加载结果对象
       loadedConfigs.forEach((loadedConfig) => {
+        // Webpack 允许配置文件返回一个配置对象或配置对象数组（常用于多配置）
         const isArray = Array.isArray(loadedConfig.options);
+
         // TODO we should run webpack multiple times when the `--config` options have multiple values with `--merge`, need to solve for the next major release
+        // 为空数组时直接赋值
         if (config.options.length === 0) {
           config.options = loadedConfig.options;
         } else {
+          // 已经有值，确保为数组格式
           if (!Array.isArray(config.options)) {
             config.options = [config.options];
           }
+          // 这个处理是为了在 --config 多文件的情况下，将所有配置项合并成数组结构
           if (isArray) {
             for (const item of loadedConfig.options) {
               config.options.push(item);
@@ -1930,6 +1986,8 @@ class WebpackCLI {
             config.options.push(loadedConfig.options);
           }
         }
+
+        // config.path 用于记录每个 options 配置项对应的配置文件路径
         if (isArray) {
           for (const options of loadedConfig.options) {
             config.path.set(options, [loadedConfig.path]);
@@ -1938,11 +1996,20 @@ class WebpackCLI {
           config.path.set(loadedConfig.options, [loadedConfig.path]);
         }
       });
+
+      // 如果配置项数组中只有一个元素，则将其解包为单个对象
+      // 否则，保持数组形式，以便 Webpack 处理多配置场景
       config.options =
         config.options.length === 1 ? config.options[0] : config.options;
     } else {
-      // TODO ".mts" is not supported by `interpret`, need to add it
-      // Prioritize popular extensions first to avoid unnecessary fs calls
+      // 处理在未显式指定配置文件路径时如何加载默认的 Webpack 配置文件
+      // 通过寻找常见的默认配置文件名和支持的文件扩展名，加载并解析第一个存在的配置文件
+
+      /**
+       * 定义了一组文件扩展名，优先级从常见的 .js 开始到 .mts，用于确定可能存在的默认配置文件
+       * 这里扩展了 .mts 和 .cts 等新格式，
+       * 虽然目前 interpret 模块不支持 .mts，但为了兼容性，仍然将它纳入检查范围
+       */
       const extensions = [
         ".js",
         ".mjs",
@@ -1950,31 +2017,43 @@ class WebpackCLI {
         ".ts",
         ".cts",
         ".mts",
+        // interpret 模块会映射常见扩展名到不同的 Node 解析规则，以便支持不同语言或模块类型的配置文件。
         ...Object.keys(interpret.extensions),
       ];
-      // Order defines the priority, in decreasing order
+
+      // 使用一组默认配置文件名，与上面的扩展名组合，生成所有可能的默认配置文件路径
       const defaultConfigFiles = new Set(
         [
           "webpack.config",
           ".webpack/webpack.config",
           ".webpack/webpackfile",
         ].flatMap((filename) =>
+          // 将文件名与每个扩展名组合，形成绝对路径，以便后续检查它们是否存在
           extensions.map((ext) => path.resolve(filename + ext))
         )
       );
+
       let foundDefaultConfigFile;
+      // 循环每个可能的配置文件
       for (const defaultConfigFile of defaultConfigFiles) {
+        // 检查是否存在
         if (!fs.existsSync(defaultConfigFile)) {
           continue;
         }
+        // 找到第一个存在的配置文件后，获取将其路径 并跳出循环，不再检查其他路径
         foundDefaultConfigFile = defaultConfigFile;
         break;
       }
+
+      // 如果找到有效的默认配置文件，加载该配置文件并解析其内容
       if (foundDefaultConfigFile) {
         const loadedConfig = await loadConfigByPath(
           foundDefaultConfigFile,
           options.argv
         );
+
+        // 若该配置是数组（可能包含多个构建配置），则逐项添加路径映射到 config.path，
+        // 否则将整个配置项与其路径关联
         config.options = loadedConfig.options;
         if (Array.isArray(config.options)) {
           for (const item of config.options) {
@@ -1985,8 +2064,13 @@ class WebpackCLI {
         }
       }
     }
+
+    // 根据用户提供的 configName 查找并加载相应的配置项，如果找不到指定的配置名称则退出
     if (options.configName) {
+      /** 记录未找到的配置项 */
       const notFoundConfigNames = [];
+
+      // 在config.options 中查找每个 configName
       config.options = options.configName.map((configName) => {
         let found;
         if (Array.isArray(config.options)) {
@@ -1995,12 +2079,15 @@ class WebpackCLI {
           found =
             config.options.name === configName ? config.options : undefined;
         }
+
+        // 无法找到特定 configName 对应的配置项，将其添加
         if (!found) {
           notFoundConfigNames.push(configName);
         }
         return found;
       });
       if (notFoundConfigNames.length > 0) {
+        // 存在未找到的 configName，记录每个未找到的配置项名称，输出错误信息，并退出程序
         this.logger.error(
           notFoundConfigNames
             .map(
@@ -2012,44 +2099,69 @@ class WebpackCLI {
         process.exit(2);
       }
     }
+
+    /**
+     * 一个递归的异步函数，用于加载并合并配置文件的继承关系，防止循环继承
+     */
     const resolveExtends = async (config, configPaths, extendsPaths) => {
+      // 首先移除 config 对象中的 extends 属性，以避免在加载和合并后继续递归
       delete config.extends;
+      // 逐一加载继承的配置文件
       const loadedConfigs = await Promise.all(
         extendsPaths.map((extendsPath) =>
           loadConfigByPath(path.resolve(extendsPath), options.argv)
         )
       );
+
+      // 加载 webpack-merge 作为合并工具
       const merge = await this.tryRequireThenImport("webpack-merge");
+      // 将所有继承的配置项平铺
       const loadedOptions = loadedConfigs.flatMap((config) => config.options);
+
+      // 数组长度大于0 表示找到了有效的继承配置项
       if (loadedOptions.length > 0) {
+        /** 获取当前配置的历史路径 */
         const prevPaths = configPaths.get(config);
+        /**  获取所有加载的继承路径 */
         const loadedPaths = loadedConfigs.flatMap((config) => config.path);
+
         if (prevPaths) {
           const intersection = loadedPaths.filter((element) =>
             prevPaths.includes(element)
           );
+          // 说明已有配置和继承配置有交集，意味着出现了循环继承，此时程序输出错误信息并退出
           if (intersection.length > 0) {
             this.logger.error(`Recursive configuration detected, exiting.`);
             process.exit(2);
           }
         }
+
+        // 未发生循环，将所有继承的配置通过 webpack-merge 合并到当前 config 中，并更新 configPaths 记录
         config = merge(...loadedOptions, config);
         if (prevPaths) {
           configPaths.set(config, [...prevPaths, ...loadedPaths]);
         }
       }
+
+      // 若当前配置仍有 extends 属性，则继续递归调用 resolveExtends
       if (config.extends) {
         const extendsPaths =
           typeof config.extends === "string"
             ? [config.extends]
             : config.extends;
+        // 确保所有继承项都被正确加载和合并
         config = await resolveExtends(config, configPaths, extendsPaths);
       }
+
+      // 最终返回合并完成的 config
       return config;
     };
-    // The `extends` param in CLI gets priority over extends in config file
+    // CLI中的extends参数优先于配置文件中的extends参数
     if (options.extends && options.extends.length > 0) {
       const extendsPaths = options.extends;
+
+      // 若 config.options 是数组，表示存在多个配置文件，
+      // 则依次对每个 options 调用 resolveExtends 函数进行处理
       if (Array.isArray(config.options)) {
         config.options = await Promise.all(
           config.options.map((options) =>
@@ -2057,7 +2169,7 @@ class WebpackCLI {
           )
         );
       } else {
-        // load the config from the extends option
+        // 不是数组，则直接调用 resolveExtends 加载并合并 extends 选项
         config.options = await resolveExtends(
           config.options,
           config.path,
@@ -2065,7 +2177,7 @@ class WebpackCLI {
         );
       }
     }
-    // if no extends option is passed, check if the config file has extends
+    // 在 CLI 中未传递 extends 参数时，检查配置文件中的 extends 属性，并按需加载
     else if (
       Array.isArray(config.options) &&
       config.options.some((options) => options.extends)
@@ -2094,18 +2206,24 @@ class WebpackCLI {
           : config.options.extends
       );
     }
+
+    // --merge 合并选项处理
     if (options.merge) {
+      // 加载 webpack-merge 模块
       const merge = await this.tryRequireThenImport("webpack-merge");
-      // we can only merge when there are multiple configurations
-      // either by passing multiple configs by flags or passing a
-      // single config exporting an array
+      // 若 config.options 不是数组或数组项数少于 2，说明无法执行合并，输出错误并退出进程
       if (!Array.isArray(config.options) || config.options.length <= 1) {
         this.logger.error(
           "At least two configurations are required for merge."
         );
         process.exit(2);
       }
+
+      /** 存储合并后的路径 */
       const mergedConfigPaths = [];
+
+      // 使用 reduce 将 config.options 中的多个配置依次合并到 accumulator 上，
+      // 每次合并时更新 accumulator 并返回合并结果，最终得到完整的合并配置
       config.options = config.options.reduce((accumulator, options) => {
         const configPath = config.path.get(options);
         const mergedOptions = merge(accumulator, options);
@@ -2114,13 +2232,23 @@ class WebpackCLI {
         }
         return mergedOptions;
       }, {});
+
+      // 更新 config.path 为 mergedConfigPaths，确保合并后的路径信息也随之更新
       config.path.set(config.options, mergedConfigPaths);
     }
+
+    // 返回合并后的配置
     return config;
   }
+
+  /**
+   * 这个函数实现了构建配置的处理，涉及到依赖项安装、参数验证、缓存设置、环境变量的应用以及插件注册等
+   */
   async buildConfig(config, options) {
+    // 如果cli 中传日了 analyze 则检查分析插件是否安装
     if (options.analyze) {
       if (!this.checkPackageExists("webpack-bundle-analyzer")) {
+        // 若未安装则自动安装
         await this.doInstall("webpack-bundle-analyzer", {
           preMessage: () => {
             this.logger.error(
@@ -2137,6 +2265,8 @@ class WebpackCLI {
         );
       }
     }
+
+    // 确保 --progress 仅支持 "profile" 值
     if (
       typeof options.progress === "string" &&
       options.progress !== "profile"
@@ -2146,16 +2276,26 @@ class WebpackCLI {
       );
       process.exit(2);
     }
+
+    /** 获取所有内置的核心选项 */
     const CLIPlugin = await this.tryRequireThenImport("./plugins/cli-plugin");
+
+    /**
+     * 主要功能是对单个 Webpack 配置项 item 进行一系列初始化、检查、设置默认值并应用 CLI 插件
+     */
     const internalBuildConfig = (item) => {
+      // 保存 item 原有的 watch 属性值，用于后续在特定情况下发出警告或恢复设置
       const originalWatchValue = item.watch;
-      // Apply options
+      //  获取所有内置 CLI 选项，只保留 core 组选项，将其存储在 args 对象中
       const args = this.getBuiltInOptions().reduce((accumulator, flag) => {
         if (flag.group === "core") {
           accumulator[flag.name] = flag;
         }
         return accumulator;
       }, {});
+
+      // 遍历 options 中的所有选项，将 CLI 参数的名称转为 kebab-case，
+      // 并筛选出存在于 args 中的选项，最终得到 values
       const values = Object.keys(options).reduce((accumulator, name) => {
         if (name === "argv") {
           return accumulator;
@@ -2166,10 +2306,14 @@ class WebpackCLI {
         }
         return accumulator;
       }, {});
+
+      // 校验并输出选项错误信息
       if (Object.keys(values).length > 0) {
+        // 校验 values 中的参数是否合法
         const problems = this.webpack.cli.processArguments(args, item, values);
         if (problems) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // 如果有问题，使用 groupBy 对问题按路径分组并逐项输出详细错误信息，
+          // 包含参数名、值和预期值，最后退出进程
           const groupBy = (xs, key) => {
             return xs.reduce((rv, x) => {
               (rv[x[key]] = rv[x[key]] || []).push(x);
@@ -2195,7 +2339,9 @@ class WebpackCLI {
           process.exit(2);
         }
       }
-      // Output warnings
+
+      // 处理 watch 设置的警告
+      // 如果当前命令已经包含 watch 功能，再使用 watch 参数会导致冗余，故输出警告
       if (
         options.isWatchingLikeCommand &&
         options.argv &&
@@ -2208,23 +2354,39 @@ class WebpackCLI {
             options.argv.env["WEBPACK_WATCH"] ? "watch" : "serve"
           }' command together with '{ watch: true | false }' or '--watch'/'--no-watch' configuration, it does not make sense.`
         );
+
+        // 若 WEBPACK_SERVE 环境变量存在，则将 item.watch 设置为 false
         if (options.argv.env["WEBPACK_SERVE"]) {
           item.watch = false;
         }
       }
+
+      // 检查当前配置是否是文件系统缓存
       const isFileSystemCacheOptions = (config) => {
         return Boolean(config.cache) && config.cache.type === "filesystem";
       };
-      // Setup default cache options
+
+      // 设置默认缓存选项
+      /**
+       * 这段代码的主要作用是设置文件系统缓存的依赖项，
+       * 以确保 Webpack 在构建过程中可以检测到配置文件的更改并自动重新构建
+       */
       if (isFileSystemCacheOptions(item)) {
+        // 获取配置路径
         const configPath = config.path.get(item);
         if (configPath) {
+          // 初始化缓存的构建依赖项对象
+          // cache.buildDependencies 用于存储构建时的依赖项
           if (!item.cache.buildDependencies) {
+            //
             item.cache.buildDependencies = {};
           }
+          // 初始化
           if (!item.cache.buildDependencies.defaultConfig) {
             item.cache.buildDependencies.defaultConfig = [];
           }
+
+          // 配置路径未数组，则遍历每个元素并添加到 defaultConfig 数组中
           if (Array.isArray(configPath)) {
             for (const oneOfConfigPath of configPath) {
               item.cache.buildDependencies.defaultConfig.push(oneOfConfigPath);
@@ -2232,9 +2394,12 @@ class WebpackCLI {
           } else {
             item.cache.buildDependencies.defaultConfig.push(configPath);
           }
+          // 这样，当配置文件发生更改时，Webpack 会自动识别到配置的变化并重新生成缓存，确保构建的准确性和一致性
         }
       }
-      // Respect `process.env.NODE_ENV`
+
+      // 若 item.mode 未设置，则使用 NODE_ENV 中的模式
+      // （仅限 development、production 和 none 三种模式），确保与环境一致
       if (
         !item.mode &&
         process.env &&
@@ -2245,14 +2410,19 @@ class WebpackCLI {
       ) {
         item.mode = process.env.NODE_ENV;
       }
-      // Setup stats
+
+      // 配置 stats 选项
       if (typeof item.stats === "undefined") {
+        // 若 stats 未定义，默认为 { preset: "normal" }
         item.stats = { preset: "normal" };
       } else if (typeof item.stats === "boolean") {
         item.stats = item.stats ? { preset: "normal" } : { preset: "none" };
       } else if (typeof item.stats === "string") {
         item.stats = { preset: item.stats };
       }
+
+      // 依次检查 CLI 是否明确设置颜色支持、配置中的颜色支持，
+      // 再次则依赖终端检测结果，最终应用到 item.stats.colors
       let colors;
       // From arguments
       if (typeof this.isColorSupportChanged !== "undefined") {
@@ -2267,7 +2437,8 @@ class WebpackCLI {
         colors = Boolean(this.colors.isColorSupported);
       }
       item.stats.colors = colors;
-      // Apply CLI plugin
+
+      // 如果没有配置插件，默认给空数组，后续添加内置插件（CLIPlugin）
       if (!item.plugins) {
         item.plugins = [];
       }
@@ -2281,11 +2452,15 @@ class WebpackCLI {
         })
       );
     };
+
+    // 如果 config.options 是一个数组，意味着这是一个包含多个 Webpack 配置项的数组，通常用于多编译器模式
     if (Array.isArray(config.options)) {
+      // 每个 item 都会应用所有配置、检查、警告和插件等逻辑，使每个配置项独立初始化
       for (const item of config.options) {
         internalBuildConfig(item);
       }
     } else {
+      // 只包含一个配置对象，直接调用
       internalBuildConfig(config.options);
     }
     return config;

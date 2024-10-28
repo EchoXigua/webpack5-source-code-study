@@ -125,6 +125,8 @@ const cli = {
   },
 };
 
+// 这里和 webpack-cli 中的处理基本类似
+
 if (!cli.installed) {
   const path = require("path");
   const fs = require("graceful-fs"); // 导入文件系统模块
