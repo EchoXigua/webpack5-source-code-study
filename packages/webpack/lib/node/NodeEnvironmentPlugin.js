@@ -5,7 +5,28 @@
 
 "use strict";
 
+/**
+ * Enhanced Resolve 是 Webpack 团队开发的路径解析库，用于在模块打包和构建过程中找到需要的模块文件
+ * 其核心功能是将模块路径解析成真实文件路径，尤其在复杂的模块引用中，它提供了更加灵活和高效的解析方式
+ *
+ * - 模块路径解析：根据模块路径和配置规则找到文件的位置，支持 Webpack 的 alias 和 extensions 等配置
+ * - 文件类型优先级：支持多种文件后缀的优先级配置，例如 Webpack 可以自动识别 .js、.json、.jsx 等文件后缀
+ * - 支持模块别名：支持通过 resolve.alias 配置模块别名，方便代码书写，且增强代码的可读性和维护性
+ * - 自定义解析插件：提供插件机制，可以定义自定义规则，比如根据环境条件加载不同的文件
+ */
 const CachedInputFileSystem = require("enhanced-resolve").CachedInputFileSystem;
+
+/**
+ * graceful-fs 是 Node.js 标准库 fs 的增强版，专门用于处理文件系统操作中的一些常见问题
+ * 原生 fs 库在处理大量并发文件操作时可能会出现性能问题，而 graceful-fs 提供了一些增强特性，
+ * 特别是在处理文件锁、网络文件系统、以及内存控制方面的改进
+ *
+ * - 处理文件描述符过多问题：在高并发场景中，标准的 fs 库可能会因文件描述符耗尽而报错。
+ * graceful-fs 通过自动重试机制解决了这一问题。
+ * - 兼容性：与原生 fs 接口完全兼容，可以无缝替换 Node.js 中的 fs
+ * - 缓解内存泄漏问题：通过对文件流的改进，减少内存泄漏的风险，适用于需要频繁读写文件的场景
+ * - 处理锁定文件：解决文件被锁定或正在被使用时的报错问题
+ */
 const fs = require("graceful-fs");
 const createConsoleLogger = require("../logging/createConsoleLogger");
 const NodeWatchFileSystem = require("./NodeWatchFileSystem");
