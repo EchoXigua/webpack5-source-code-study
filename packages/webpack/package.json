@@ -23,7 +23,11 @@
   },
   "dependencies": {
     "enhanced-resolve": "^5.17.1",
+    "json-parse-even-better-errors": "^4.0.0",
+    "neo-async": "^2.6.2",
     "schema-utils": "^4.2.0",
-    "watchpack": "^2.4.2"
+    "tapable": "^2.2.1",
+    "watchpack": "^2.4.2",
+    "webpack-sources": "^3.2.3"
   }
 }
