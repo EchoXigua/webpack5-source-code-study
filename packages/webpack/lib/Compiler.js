@@ -94,7 +94,19 @@ class Compiler {
      * hooks：包含多个编译生命周期事件的钩子，这些钩子让插件可以在编译的各个阶段执行自定义逻辑
      * 允许开发者通过插件或其他代码对构建过程进行扩展或定制
      * 每个钩子都与 Webpack 的某一阶段或事件关联，使用不同的钩子类型可以决定是否允许异步执行、是否允许中断流程等
-     * 主要分为 SyncHook（同步钩子）、AsyncSeriesHook（异步串行钩子）和 AsyncParallelHook（异步并行钩子）
+     *
+     * - 主要分为 SyncHook（同步钩子）、AsyncSeriesHook（异步串行钩子）和 AsyncParallelHook（异步并行钩子）
+     * - SyncBailHook 也是一种同步钩子，它允许在调用监听器时，提前返回一个值，
+     * 只要某个监听器返回非 undefined 的值，后续的监听器将不会被调用
+     *
+     * - 同步：
+     * 		- 通过 new SyncHook([])、 new SyncBailHook 初始化
+     * 		- 使用 tap 注册回调
+     * 		- 使用 call 触发所有注册的回调
+     * - 异步：
+     * 		- 通过 new AsyncSeriesHook（按tapAsync 注册顺序串行）、new AsyncParallelHook 初始化
+     * 		- 使用 tapAsync 注册回调
+     * 		- 使用 callAsync 触发回调
      */
     this.hooks = Object.freeze({
       // Webpack 初始化后执行，可用于在插件中定义某些初始逻辑
