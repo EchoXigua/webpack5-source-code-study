@@ -16,22 +16,22 @@ const {
 const { SizeOnlySource } = require("webpack-sources");
 const webpack = require(".");
 const Cache = require("./Cache");
-const CacheFacade = require("./CacheFacade");
-const ChunkGraph = require("./ChunkGraph");
-const Compilation = require("./Compilation");
-const ConcurrentCompilationError = require("./ConcurrentCompilationError");
-const ContextModuleFactory = require("./ContextModuleFactory");
-const ModuleGraph = require("./ModuleGraph");
-const NormalModuleFactory = require("./NormalModuleFactory");
-const RequestShortener = require("./RequestShortener");
-const ResolverFactory = require("./ResolverFactory");
-const Stats = require("./Stats");
-const Watching = require("./Watching");
-const WebpackError = require("./WebpackError");
-const { Logger } = require("./logging/Logger");
-const { join, dirname, mkdirp } = require("./util/fs");
-const { makePathsRelative } = require("./util/identifier");
-const { isSourceEqual } = require("./util/source");
+// const CacheFacade = require("./CacheFacade");
+// const ChunkGraph = require("./ChunkGraph");
+// const Compilation = require("./Compilation");
+// const ConcurrentCompilationError = require("./ConcurrentCompilationError");
+// const ContextModuleFactory = require("./ContextModuleFactory");
+// const ModuleGraph = require("./ModuleGraph");
+// const NormalModuleFactory = require("./NormalModuleFactory");
+// const RequestShortener = require("./RequestShortener");
+// const ResolverFactory = require("./ResolverFactory");
+// const Stats = require("./Stats");
+// const Watching = require("./Watching");
+// const WebpackError = require("./WebpackError");
+// const { Logger } = require("./logging/Logger");
+// const { join, dirname, mkdirp } = require("./util/fs");
+// const { makePathsRelative } = require("./util/identifier");
+// const { isSourceEqual } = require("./util/source");
 
 /**
  * 判断一个字符串数组是否已按字典顺序排序
