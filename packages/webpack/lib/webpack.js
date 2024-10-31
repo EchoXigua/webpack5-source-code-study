@@ -94,6 +94,7 @@ const createCompiler = (rawOptions, compilerIndex) => {
   }
 
   // 基于编译器的索引进一步调整配置，这个配置处理逻辑通常在多编译器的场景下更有用
+  // 这里给 options 中添加默认配置项（如果用户没填写会用默认值覆盖，否则使用用户提供的）
   const resolvedDefaultOptions = applyWebpackOptionsDefaults(
     options,
     compilerIndex

@@ -64,32 +64,33 @@ const F = (obj, prop, factory) => {
 };
 
 /**
- * Sets a dynamic default value when undefined, by calling the factory function.
- * factory must return an array or undefined
- * When the current value is already an array an contains "..." it's replaced with
- * the result of the factory function
- * @template T
- * @template {keyof T} P
- * @param {T} obj an object
- * @param {P} prop a property of this object
- * @param {function(): T[P]} factory a default value factory for the property
- * @returns {void}
+ * 用于根据条件动态添加或合并对象 obj 中的属性 prop,
+ * 通过指定的 factory 函数生成的默认值来初始化或扩展属性值
+ * 会处理未定义值、普通值和带有特殊合并符号的数组情况，
+ * 特别是当数组包含 "..." 作为占位符时，用 factory() 返回的值进行替换
+ *
+ * @param {*} obj 目标对象
+ * @param {*} prop 要添加或修改的属性名称
+ * @param {*} factory 用于生成默认值的函数
  */
 const A = (obj, prop, factory) => {
   const value = obj[prop];
   if (value === undefined) {
     obj[prop] = factory();
   } else if (Array.isArray(value)) {
-    /** @type {any[] | undefined} */
     let newArray;
     for (let i = 0; i < value.length; i++) {
       const item = value[i];
+
+      // 处理占位符,在此位置插入 factory() 生成的新数组元素
       if (item === "...") {
         if (newArray === undefined) {
+          // 赋值前i项,构建新数组
           newArray = value.slice(0, i);
-          obj[prop] = /** @type {T[P]} */ (/** @type {unknown} */ (newArray));
+          // 替换之前的引用
+          obj[prop] = newArray;
         }
-        const items = /** @type {any[]} */ (/** @type {unknown} */ (factory()));
+        const items = factory();
         if (items !== undefined) {
           for (const item of items) {
             newArray.push(item);
@@ -122,40 +123,39 @@ const applyWebpackOptionsBaseDefaults = (options) => {
  * @returns {ResolvedOptions} Resolved options after apply defaults
  */
 const applyWebpackOptionsDefaults = (options, compilerIndex) => {
+  // 默认的上下文
   F(options, "context", () => process.cwd());
-  F(options, "target", () =>
-    getDefaultTarget(/** @type {string} */ (options.context))
-  );
+  // 默认的打包目标 这里有 web  browserslist
+  F(options, "target", () => getDefaultTarget(options.context));
 
   const { mode, name, target } = options;
 
   const targetProperties =
     target === false
-      ? /** @type {false} */ (false)
+      ? false
       : typeof target === "string"
-        ? getTargetProperties(target, /** @type {Context} */ (options.context))
-        : getTargetsProperties(
-            /** @type {string[]} */ (target),
-            /** @type {Context} */ (options.context)
-          );
+        ? // 单个
+          getTargetProperties(target, options.context)
+        : // 数组
+          getTargetsProperties(target, options.context);
 
   const development = mode === "development";
+  // mode 未定义，默认是 生产环境
   const production = mode === "production" || !mode;
 
+  // 默认的入口路径为 ./src，确保了项目有一个有效的打包入口
   if (typeof options.entry !== "function") {
     for (const key of Object.keys(options.entry)) {
-      F(
-        options.entry[key],
-        "import",
-        () => /** @type {[string]} */ (["./src"])
-      );
+      F(options.entry[key], "import", () => ["./src"]);
     }
   }
 
+  // 默认的sourcemap 生成
   F(options, "devtool", () => (development ? "eval" : false));
-  D(options, "watch", false);
-  D(options, "profile", false);
-  D(options, "parallelism", 100);
+  D(options, "watch", false); // 默认不开启监听
+  D(options, "profile", false); // 默认不开启性能分析
+  D(options, "parallelism", 100); // 默认最大并行数量 100
+  // 默认不控制构建记录的输入输出路径
   D(options, "recordsInputPath", false);
   D(options, "recordsOutputPath", false);
 
@@ -169,9 +169,9 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     /** @type {NonNullable<ExperimentsNormalized["futureDefaults"]>} */
     (options.experiments.futureDefaults);
 
-  F(options, "cache", () =>
-    development ? { type: /** @type {"memory"} */ ("memory") } : false
-  );
+  // 开发环境下，默认内存缓存，否则不缓存
+  F(options, "cache", () => (development ? { type: "memory" } : false));
+
   applyCacheDefaults(options.cache, {
     name: name || DEFAULT_CACHE_NAME,
     mode: mode || "production",
@@ -188,22 +188,16 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
 
   applyModuleDefaults(options.module, {
     cache,
-    syncWebAssembly:
-      /** @type {NonNullable<ExperimentsNormalized["syncWebAssembly"]>} */
-      (options.experiments.syncWebAssembly),
-    asyncWebAssembly:
-      /** @type {NonNullable<ExperimentsNormalized["asyncWebAssembly"]>} */
-      (options.experiments.asyncWebAssembly),
-    css:
-      /** @type {NonNullable<ExperimentsNormalized["css"]>} */
-      (options.experiments.css),
+    syncWebAssembly: options.experiments.syncWebAssembly,
+    asyncWebAssembly: options.experiments.asyncWebAssembly,
+    css: options.experiments.css,
     futureDefaults,
     isNode: targetProperties && targetProperties.node === true,
     targetProperties,
   });
 
   applyOutputDefaults(options.output, {
-    context: /** @type {Context} */ (options.context),
+    context: options.context,
     targetProperties,
     isAffectedByBrowserslist:
       target === undefined ||
@@ -307,29 +301,31 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
 };
 
 /**
- * @param {ExperimentsNormalized} experiments options
- * @param {object} options options
- * @param {boolean} options.production is production
- * @param {boolean} options.development is development mode
- * @param {TargetProperties | false} options.targetProperties target properties
- * @returns {void}
+ * 为 Webpack 的实验性功能设置默认值
+ *
+ * targetProperties： 目标属性
  */
 const applyExperimentsDefaults = (
   experiments,
   { production, development, targetProperties }
 ) => {
+  // 是否使用未来的默认配置
   D(experiments, "futureDefaults", false);
+  // 保持向后兼容
   D(experiments, "backCompat", !experiments.futureDefaults);
+  // 默认同步 WebAssembly 功能未启用
   D(experiments, "syncWebAssembly", false);
   D(experiments, "asyncWebAssembly", experiments.futureDefaults);
-  D(experiments, "outputModule", false);
-  D(experiments, "layers", false);
+  D(experiments, "outputModule", false); // 输出模块功能
+  D(experiments, "layers", false); // 模块层功能
   D(experiments, "lazyCompilation", undefined);
   D(experiments, "buildHttp", undefined);
   D(experiments, "cacheUnaffected", experiments.futureDefaults);
   F(experiments, "css", () => (experiments.futureDefaults ? true : undefined));
 
   // TODO webpack 6: remove this. topLevelAwait should be enabled by default
+  // webpack6 将会移除，默认情况下应该启用topLevelAwait
+  // 是否启用顶层 await 功能
   let shouldEnableTopLevelAwait = true;
   if (typeof experiments.topLevelAwait === "boolean") {
     shouldEnableTopLevelAwait = experiments.topLevelAwait;
@@ -338,26 +334,24 @@ const applyExperimentsDefaults = (
 
   if (typeof experiments.buildHttp === "object") {
     D(experiments.buildHttp, "frozen", production);
-    D(experiments.buildHttp, "upgrade", false);
+    D(experiments.buildHttp, "upgrade", false); // 未启用升级功能
   }
 };
 
 /**
+ * 为 Webpack 的缓存配置设置默认值
+ *
  * @param {CacheOptionsNormalized} cache options
  * @param {object} options options
- * @param {string} options.name name
- * @param {Mode} options.mode mode
- * @param {boolean} options.development is development mode
- * @param {number} [options.compilerIndex] index of compiler
- * @param {Experiments["cacheUnaffected"]} options.cacheUnaffected the cacheUnaffected experiment is enabled
- * @returns {void}
  */
 const applyCacheDefaults = (
   cache,
   { name, mode, development, cacheUnaffected, compilerIndex }
 ) => {
   if (cache === false) return;
+
   switch (cache.type) {
+    // 文件系统缓存
     case "filesystem":
       F(cache, "name", () =>
         compilerIndex !== undefined
@@ -365,10 +359,13 @@ const applyCacheDefaults = (
           : `${name}-${mode}`
       );
       D(cache, "version", "");
+
+      // 动态计算缓存路径
       F(cache, "cacheDirectory", () => {
         const cwd = process.cwd();
-        /** @type {string | undefined} */
         let dir = cwd;
+
+        // 这里死循环一直向上查找 package.json 文件，找到后退出循环，找到顶层后也退出循环
         for (;;) {
           try {
             if (fs.statSync(path.join(dir, "package.json")).isFile()) break;
@@ -381,15 +378,22 @@ const applyCacheDefaults = (
           }
           dir = parent;
         }
+
         if (!dir) {
+          // 没有找到包含 package.json 的目录 默认的缓存目录 cwd/.cache/webpack，其中 cwd 是当前工作目录
           return path.resolve(cwd, ".cache/webpack");
         } else if (process.versions.pnp === "1") {
+          // 检测到 PnP 的版本为 1，返回 .pnp/.cache/webpack 作为缓存目录
+          // PnP 是 Yarn 的一种依赖管理方式，它改变了模块的安装和解析机制
           return path.resolve(dir, ".pnp/.cache/webpack");
         } else if (process.versions.pnp === "3") {
+          // 不同的版本使用不同的缓存目录结构
           return path.resolve(dir, ".yarn/.cache/webpack");
         }
+        // 默认使用 node_modules/.cache/webpack 作为缓存目录。这是常见的 Node.js 模块缓存路径
         return path.resolve(dir, "node_modules/.cache/webpack");
       });
+      // 缓存存储的具体位置
       F(cache, "cacheLocation", () =>
         path.resolve(
           /** @type {NonNullable<FileCacheOptions["cacheDirectory"]>} */
@@ -397,26 +401,40 @@ const applyCacheDefaults = (
           /** @type {NonNullable<FileCacheOptions["name"]>} */ (cache.name)
         )
       );
+
+      // 哈希算法默认使用 md4，md4 是一种快速的哈希算法，通常用于小数据块的处理
       D(cache, "hashAlgorithm", "md4");
-      D(cache, "store", "pack");
-      D(cache, "compression", false);
-      D(cache, "profile", false);
-      D(cache, "idleTimeout", 60000);
+      D(cache, "store", "pack"); // 缓存将以打包的方式存储
+      D(cache, "compression", false); // 不进行压缩
+      D(cache, "profile", false); // 不启用性能分析
+      D(cache, "idleTimeout", 60000); // 60000 毫秒（1分钟），表示在闲置后多长时间清理缓存
+      // 初始存储的闲置超时时间为 5000 毫秒（5秒）
       D(cache, "idleTimeoutForInitialStore", 5000);
+      // 大规模更改后的闲置超时时间为 1000 毫秒（1秒）
       D(cache, "idleTimeoutAfterLargeChanges", 1000);
+      // 在开发模式下最多保留 5 个内存生成，其他情况下不限制
       D(cache, "maxMemoryGenerations", development ? 5 : Infinity);
+      // 缓存最大保留时间为 （60 天）
       D(cache, "maxAge", 1000 * 60 * 60 * 24 * 60); // 1 month
+
+      // 仅在开发模式下允许内存收集
       D(cache, "allowCollectingMemory", development);
       D(cache, "memoryCacheUnaffected", development && cacheUnaffected);
+      // 允许写入缓存
       D(cache, "readonly", false);
+      // 构建依赖项，默认依赖于 Webpack 的安装目录
       D(
         /** @type {NonNullable<FileCacheOptions["buildDependencies"]>} */
         (cache.buildDependencies),
         "defaultWebpack",
+        // path.sep 操作系统的分隔符 （在 Unix 系统中是 /，在 Windows 系统中是 \）
         [path.resolve(__dirname, "..") + path.sep]
       );
       break;
+
+    // 内存缓存
     case "memory":
+      // 当缓存类型为内存时，设置最大生成数为无限制
       D(cache, "maxGenerations", Infinity);
       D(cache, "cacheUnaffected", development && cacheUnaffected);
       break;
@@ -424,27 +442,32 @@ const applyCacheDefaults = (
 };
 
 /**
+ * 为快照相关的配置设置默认值，特别是与路径管理和构建依赖项相关的设置
  * @param {SnapshotOptions} snapshot options
  * @param {object} options options
- * @param {boolean} options.production is production
- * @param {boolean} options.futureDefaults is future defaults enabled
- * @returns {void}
  */
 const applySnapshotDefaults = (snapshot, { production, futureDefaults }) => {
+  // 使用未来的默认设置
   if (futureDefaults) {
+    // 管理路径
     F(snapshot, "managedPaths", () =>
       process.versions.pnp === "3"
-        ? [
+        ? // 匹配 .yarn/unplugged 的路径
+          [
             /^(.+?(?:[\\/]\.yarn[\\/]unplugged[\\/][^\\/]+)?[\\/]node_modules[\\/])/,
           ]
-        : [/^(.+?[\\/]node_modules[\\/])/]
+        : // 匹配 node_modules 的路径
+          [/^(.+?[\\/]node_modules[\\/])/]
     );
+
+    // 不可变路径
     F(snapshot, "immutablePaths", () =>
       process.versions.pnp === "3"
         ? [/^(.+?[\\/]cache[\\/][^\\/]+\.zip[\\/]node_modules[\\/])/]
         : []
     );
   } else {
+    // 根据当前 watchpack 的位置动态计算并设置管理路径
     A(snapshot, "managedPaths", () => {
       if (process.versions.pnp === "3") {
         const match =
@@ -485,12 +508,17 @@ const applySnapshotDefaults = (snapshot, { production, futureDefaults }) => {
       return [];
     });
   }
+
+  // 始终将未管理路径设置为空数组
   F(snapshot, "unmanagedPaths", () => []);
+  // 构建依赖项设置为对象，包含时间戳和哈希信息
   F(snapshot, "resolveBuildDependencies", () => ({
     timestamp: true,
     hash: true,
   }));
   F(snapshot, "buildDependencies", () => ({ timestamp: true, hash: true }));
+
+  // 模块和解析  在生产模式下，配置包括时间戳和哈希；否则，仅包含时间戳
   F(snapshot, "module", () =>
     production ? { timestamp: true, hash: true } : { timestamp: true }
   );
@@ -550,37 +578,27 @@ const applyCssGeneratorOptionsDefaults = (
 };
 
 /**
+ * 为 Webpack 的 模块处理 配置设置一系列默认值
  * @param {ModuleOptions} module options
  * @param {object} options options
- * @param {boolean} options.cache is caching enabled
- * @param {boolean} options.syncWebAssembly is syncWebAssembly enabled
- * @param {boolean} options.asyncWebAssembly is asyncWebAssembly enabled
- * @param {boolean} options.css is css enabled
- * @param {boolean} options.futureDefaults is future defaults enabled
- * @param {boolean} options.isNode is node target platform
- * @param {TargetProperties | false} options.targetProperties target properties
- * @returns {void}
  */
 const applyModuleDefaults = (
   module,
   {
     cache,
-    syncWebAssembly,
-    asyncWebAssembly,
-    css,
-    futureDefaults,
-    isNode,
-    targetProperties,
+    syncWebAssembly, // 是否使用同步 WebAssembly 模块
+    asyncWebAssembly, // 是否使用异步 WebAssembly 模块
+    css, // 是否启用 CSS 处理
+    futureDefaults, // 是否使用未来的默认设置
+    isNode, // 当前目标是否为 Node.js
+    targetProperties, // 目标属性的对象，描述构建的目标环境
   }
 ) => {
   if (cache) {
     D(
       module,
       "unsafeCache",
-      /**
-       * @param {Module} module module
-       * @returns {boolean | null | string} true, if we want to cache the module
-       */
+      // 模块是否被缓存
       (module) => {
         const name = module.nameForCondition();
         return name && NODE_MODULES_REGEXP.test(name);
@@ -590,51 +608,41 @@ const applyModuleDefaults = (
     D(module, "unsafeCache", false);
   }
 
+  // asset 解析器默认为空
   F(module.parser, ASSET_MODULE_TYPE, () => ({}));
-  F(
-    /** @type {NonNullable<ParserOptionsByModuleTypeKnown["asset"]>} */
-    (module.parser.asset),
-    "dataUrlCondition",
-    () => ({})
-  );
-  if (
-    typeof (
-      /** @type {NonNullable<ParserOptionsByModuleTypeKnown["asset"]>} */
-      (module.parser.asset).dataUrlCondition
-    ) === "object"
-  ) {
-    D(
-      /** @type {NonNullable<ParserOptionsByModuleTypeKnown["asset"]>} */
-      (module.parser.asset).dataUrlCondition,
-      "maxSize",
-      8096
-    );
+  F(module.parser.asset, "dataUrlCondition", () => ({}));
+  /**
+   * dataUrlCondition: 如果 dataUrlCondition 是一个对象，设置其 maxSize 属性为 8096 字节（8 KB），
+   * 表示在这个大小以内的资产可以以数据 URL 形式嵌入
+   */
+  if (typeof module.parser.asset.dataUrlCondition === "object") {
+    D(module.parser.asset.dataUrlCondition, "maxSize", 8096);
   }
 
+  // js 解析器默认为空
   F(module.parser, "javascript", () => ({}));
 
-  applyJavascriptParserOptionsDefaults(
-    /** @type {NonNullable<ParserOptionsByModuleTypeKnown["javascript"]>} */
-    (module.parser.javascript),
-    {
-      futureDefaults,
-      isNode,
-    }
-  );
+  // 为 js 解析器 设置默认选项
+  applyJavascriptParserOptionsDefaults(module.parser.javascript, {
+    futureDefaults,
+    isNode,
+  });
 
+  // 启用了 CSS 处理
   if (css) {
     F(module.parser, "css", () => ({}));
 
+    // 表示允许使用命名导出
     D(module.parser.css, "namedExports", true);
 
     F(module.generator, "css", () => ({}));
 
-    applyCssGeneratorOptionsDefaults(
-      /** @type {NonNullable<GeneratorOptionsByModuleTypeKnown["css"]>} */
-      (module.generator.css),
-      { targetProperties }
-    );
+    // 为 CSS 生成器设置默认选项
+    applyCssGeneratorOptionsDefaults(module.generator.css, {
+      targetProperties,
+    });
 
+    // 初始化自动 CSS 生成器，并设置生成的 CSS 类名格式和导出约定
     F(module.generator, "css/auto", () => ({}));
     D(
       module.generator["css/auto"],
@@ -660,6 +668,7 @@ const applyModuleDefaults = (
     D(module.generator["css/global"], "exportsConvention", "as-is");
   }
 
+  // 为模块设置默认规则
   A(module, "defaultRules", () => {
     const esm = {
       type: JAVASCRIPT_MODULE_TYPE_ESM,
@@ -674,24 +683,30 @@ const applyModuleDefaults = (
     const commonjs = {
       type: JAVASCRIPT_MODULE_TYPE_DYNAMIC,
     };
-    /** @type {RuleSetRules} */
+
     const rules = [
+      // 包含 Node.js 专用代码的模块，自动识别它们为 JavaScript 模块
       {
         mimetype: "application/node",
         type: JAVASCRIPT_MODULE_TYPE_AUTO,
       },
+      // 识别json文件,能够在模块中直接加载 JSON 数据。
       {
         test: /\.json$/i,
         type: JSON_MODULE_TYPE,
       },
+      // 类似于前一条规则，但通过 MIME 类型匹配 JSON 文件
       {
         mimetype: "application/json",
         type: JSON_MODULE_TYPE,
       },
+      // 识别 esm
       {
         test: /\.mjs$/i,
         ...esm,
       },
+
+      // 匹配js文件,type 为 module 时应用 esm 规则
       {
         test: /\.js$/i,
         descriptionData: {
@@ -699,10 +714,12 @@ const applyModuleDefaults = (
         },
         ...esm,
       },
+      // 应用 cjs 规则
       {
         test: /\.cjs$/i,
         ...commonjs,
       },
+      // 匹配js type 为 cjs 时 应用其规则
       {
         test: /\.js$/i,
         descriptionData: {
@@ -710,6 +727,8 @@ const applyModuleDefaults = (
         },
         ...commonjs,
       },
+
+      // 将这类 JavaScript 文件识别为 ESM 类型，适用于浏览器或服务器端通用的 JS 文件
       {
         mimetype: {
           or: ["text/javascript", "application/javascript"],
@@ -717,6 +736,8 @@ const applyModuleDefaults = (
         ...esm,
       },
     ];
+
+    // 异步加载 wasm
     if (asyncWebAssembly) {
       const wasm = {
         type: WEBASSEMBLY_MODULE_TYPE_ASYNC,
@@ -731,15 +752,20 @@ const applyModuleDefaults = (
           },
         ],
       };
+
+      // 匹配 wasm 文件
       rules.push({
         test: /\.wasm$/i,
         ...wasm,
       });
+      //  MIME 类型为 application/wasm 时 应用 wasm 规则
       rules.push({
         mimetype: "application/wasm",
         ...wasm,
       });
     } else if (syncWebAssembly) {
+      // 同步加载 wasm
+
       const wasm = {
         type: WEBASSEMBLY_MODULE_TYPE_SYNC,
         rules: [
@@ -762,9 +788,12 @@ const applyModuleDefaults = (
         ...wasm,
       });
     }
+
     if (css) {
       const resolve = {
+        // 要求 import 路径包括文件扩展名，比如 .css
         fullySpecified: true,
+        // 优先使用相对路径进行模块解析，有助于确保 CSS 文件的依赖关系按相对路径加载
         preferRelative: true,
       };
       rules.push({

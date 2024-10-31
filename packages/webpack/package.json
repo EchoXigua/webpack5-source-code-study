@@ -22,6 +22,7 @@
     }
   },
   "dependencies": {
+    "browserslist": "^4.24.2",
     "enhanced-resolve": "^5.17.1",
     "json-parse-even-better-errors": "^4.0.0",
     "neo-async": "^2.6.2",
