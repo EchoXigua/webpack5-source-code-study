@@ -897,6 +897,7 @@ const applyModuleDefaults = (
 };
 
 /**
+ * 用于配置和设定 Webpack 输出（output）的默认值
  * @param {Output} output options
  * @param {object} options options
  * @param {string} options.context context
@@ -911,48 +912,71 @@ const applyModuleDefaults = (
 const applyOutputDefaults = (
   output,
   {
-    context,
-    targetProperties: tp,
-    isAffectedByBrowserslist,
-    outputModule,
-    development,
-    entry,
-    futureDefaults,
+    context, // 上下文路径，通常是项目的根目录
+    targetProperties: tp, // 目标特性，用于确定支持的功能
+    isAffectedByBrowserslist, // 是否受到 Browserslist 配置的影响
+    outputModule, // 输出是否为模块（ESM）
+    development, // 是否为开发模式
+    entry, // 入口配置
+    futureDefaults, // 是否使用未来的默认设置
   }
 ) => {
   /**
-   * @param {Library=} library the library option
-   * @returns {string} a readable library name
+   * 用于获取库的名称
    */
   const getLibraryName = (library) => {
+    // 传入的库不是数组,切存在 type 属性,则取其name 属性,否则直接使用
     const libraryName =
       typeof library === "object" &&
       library &&
       !Array.isArray(library) &&
       "type" in library
         ? library.name
-        : /** @type {LibraryName} */ (library);
+        : library;
+
+    // 如果是数组通过.拼接成字符串
     if (Array.isArray(libraryName)) {
       return libraryName.join(".");
     } else if (typeof libraryName === "object") {
+      // 递归调用 getLibraryName 函数获取 root 的名称
       return getLibraryName(libraryName.root);
     } else if (typeof libraryName === "string") {
       return libraryName;
     }
+
+    // 如果都不是，返回空字符串
     return "";
   };
 
+  // uniqueName 是用于生成库的唯一标识符
   F(output, "uniqueName", () => {
+    // 获取库的名称,处理库名称中可能存在的特殊字符或格式
     const libraryName = getLibraryName(output.library).replace(
+      /**
+       * 这个正则表达式包含了三个主要部分，用 | 分隔，表示“或”的关系
+       *
+       * 这个正则表达式旨在匹配类似于以下格式的字符串：
+       * - "[name]." （第一部分）
+       * - ".[name]" （第二部分）
+       * - "[name]" （第三部分）
+       */
       /^\[(\\*[\w:]+\\*)\](\.)|(\.)\[(\\*[\w:]+\\*)\](?=\.|$)|\[(\\*[\w:]+\\*)\]/g,
+      // m 是匹配到的字符串,剩余的为捕获组
       (m, a, d1, d2, b, c) => {
+        // 取出有效的捕获内容
         const content = a || b || c;
+        // 判断捕获的内容是否被转义（以 \ 开头和结尾）
+        // 如果是转义的，则将内容格式化为特定的字符串形式，移除开头和结尾的 \；否则返回空字符串
         return content.startsWith("\\") && content.endsWith("\\")
           ? `${d2 || ""}[${content.slice(1, -1)}]${d1 || ""}`
           : "";
       }
     );
+
+    // 如果库的名称获取成功则返回
     if (libraryName) return libraryName;
+
+    // 从 pkg 中获取名称
     const pkgPath = path.resolve(context, "package.json");
     try {
       const packageInfo = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
@@ -968,61 +992,92 @@ const applyOutputDefaults = (
     }
   });
 
+  // 输出是否是一个 ES 模块
   F(output, "module", () => Boolean(outputModule));
+  // 文件名后缀为 .mjs
   D(output, "filename", output.module ? "[name].mjs" : "[name].js");
+  // 如果不是模块输出，则使用立即调用函数表达式（IIFE）格式
   F(output, "iife", () => !output.module);
+  // 用于指定动态导入的函数名称
   D(output, "importFunctionName", "import");
+  // 用于指定导入元信息的名称
   D(output, "importMetaName", "import.meta");
+
+  // chunk 的文件名
   F(output, "chunkFilename", () => {
-    const filename =
-      /** @type {NonNullable<Output["chunkFilename"]>} */
-      (output.filename);
+    const filename = output.filename;
     if (typeof filename !== "function") {
+      // 是否包含 [name] 占位符，表示文件名中包含 chunk 的名称
       const hasName = filename.includes("[name]");
+      // 是否包含 [id] 占位符，表示 chunk 的唯一 ID
       const hasId = filename.includes("[id]");
+      // 是否包含 [chunkhash] 占位符，用于生成与 chunk 内容相关的 hash
       const hasChunkHash = filename.includes("[chunkhash]");
+      // 是否包含 [contenthash] 占位符，通常用于更改内容时生成的 hash
       const hasContentHash = filename.includes("[contenthash]");
       // Anything changing depending on chunk is fine
+
+      // 包含上述任意一个占位符，直接返回原始的 filename
       if (hasChunkHash || hasContentHash || hasName || hasId) return filename;
-      // Otherwise prefix "[id]." in front of the basename to make it changing
+
+      // 没有包含任何可变的占位符，就用正则表达式替换 filename 的基础名称部分
+      // 在其前面加上 [id].，确保生成的文件名会随着 ID 的变化而变化
       return filename.replace(/(^|\/)([^/]*(?:\?|$))/, "$1[id].$2");
     }
     return output.module ? "[id].mjs" : "[id].js";
   });
+
+  // 生成 CSS 文件的文件名
   F(output, "cssFilename", () => {
-    const filename =
-      /** @type {NonNullable<Output["cssFilename"]>} */
-      (output.filename);
+    const filename = output.filename;
     if (typeof filename !== "function") {
+      // 将文件名中的 .js 后缀替换为 .css
       return filename.replace(/\.[mc]?js(\?|$)/, ".css$1");
     }
     return "[id].css";
   });
+  // css chunk
   F(output, "cssChunkFilename", () => {
-    const chunkFilename =
-      /** @type {NonNullable<Output["cssChunkFilename"]>} */
-      (output.chunkFilename);
+    const chunkFilename = output.chunkFilename;
+
+    // 主要是将 chunk 文件名中的 .js 后缀替换为 .css
     if (typeof chunkFilename !== "function") {
       return chunkFilename.replace(/\.[mc]?js(\?|$)/, ".css$1");
     }
     return "[id].css";
   });
+
+  // 当前环境不是开发模式，则启用 CSS 头部数据压缩
   D(output, "cssHeadDataCompression", !development);
+  /**
+   * 使用占位符 [hash]、[ext] 和 [query]
+   * - [hash]: 将会根据文件内容生成的哈希值，确保每次内容变化时文件名也会变化，有助于缓存管理
+   * - [ext]: 文件的扩展名（如 .png, .jpg, 等）
+   * - [query]: URL 查询参数，通常用于控制请求的附加信息
+   */
   D(output, "assetModuleFilename", "[hash][ext][query]");
+  // 设置 WebAssembly 模块文件名的格式，确保 WebAssembly 文件在内容变化时也能生成新的文件名，避免缓存问题
   D(output, "webassemblyModuleFilename", "[hash].module.wasm");
+
+  // 着在 Webpack 发出文件之前，会比较当前生成的文件和上次生成的文件。
+  // 如果没有变化，则不会发出。这对于优化构建性能、避免不必要的文件发出非常有用
   D(output, "compareBeforeEmit", true);
+  // 示生成的文件将包含字符集声明，例如 UTF-8。这对于确保浏览器正确解析文件内容很重要
   D(output, "charset", true);
-  const uniqueNameId = Template.toIdentifier(
-    /** @type {NonNullable<Output["uniqueName"]>} */ (output.uniqueName)
-  );
+
+  // 唯一名称
+  const uniqueNameId = Template.toIdentifier(output.uniqueName);
+  // 热更新时的全局变量名称
   F(output, "hotUpdateGlobal", () => `webpackHotUpdate${uniqueNameId}`);
+  // 用于加载 chunk 时的全局变量名称
   F(output, "chunkLoadingGlobal", () => `webpackChunk${uniqueNameId}`);
+  // 定义 Webpack 输出的全局对象
   F(output, "globalObject", () => {
     if (tp) {
-      if (tp.global) return "global";
-      if (tp.globalThis) return "globalThis";
+      if (tp.global) return "global"; // Node.js 环境
+      if (tp.globalThis) return "globalThis"; // 适用于所有环境的通用全局对象
     }
-    return "self";
+    return "self"; //  Web Worker 或浏览器环境中的全局对象
   });
   F(output, "chunkFormat", () => {
     if (tp) {
