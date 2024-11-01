@@ -84,6 +84,9 @@ importers:
       tapable:
         specifier: ^2.2.1
         version: 2.2.1
+      terser-webpack-plugin:
+        specifier: ^5.3.10
+        version: 5.3.10(webpack@5.93.0)
       watchpack:
         specifier: ^2.4.2
         version: 2.4.2

@@ -159,6 +159,7 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
   D(options, "recordsInputPath", false);
   D(options, "recordsOutputPath", false);
 
+  // 为实验性功能配置默认值
   applyExperimentsDefaults(options.experiments, {
     production,
     development,
@@ -172,6 +173,7 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
   // 开发环境下，默认内存缓存，否则不缓存
   F(options, "cache", () => (development ? { type: "memory" } : false));
 
+  // 为缓存配置默认值
   applyCacheDefaults(options.cache, {
     name: name || DEFAULT_CACHE_NAME,
     mode: mode || "production",
@@ -181,11 +183,13 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
   });
   const cache = Boolean(options.cache);
 
+  // 为快照配置默认值
   applySnapshotDefaults(options.snapshot, {
     production,
     futureDefaults,
   });
 
+  // 为 module 配置默认值
   applyModuleDefaults(options.module, {
     cache,
     syncWebAssembly: options.experiments.syncWebAssembly,
@@ -212,11 +216,13 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     futureDefaults,
   });
 
+  // 用于设置 externalsPresets 的默认配置项，以支持不同的运行环境（如 web、node、electron 等）和扩展配置
   applyExternalsPresetsDefaults(options.externalsPresets, {
-    targetProperties,
-    buildHttp: Boolean(options.experiments.buildHttp),
+    targetProperties, // 运行环境的属性对象，决定目标是否支持特定的环境
+    buildHttp: Boolean(options.experiments.buildHttp), // 用于控制是否允许构建 HTTP 模块
   });
 
+  // 为 loader 设置默认值
   applyLoaderDefaults(
     /** @type {NonNullable<WebpackOptionsNormalized["loader"]>} */ (
       options.loader
@@ -224,6 +230,7 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     { targetProperties, environment: options.output.environment }
   );
 
+  // 用于设置 options.externalsType 的默认值
   F(options, "externalsType", () => {
     const validExternalTypes = require("../../schemas/WebpackOptions.json")
       .definitions.ExternalsType.enum;
@@ -231,8 +238,8 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
       validExternalTypes.includes(options.output.library.type)
       ? /** @type {ExternalsType} */ (options.output.library.type)
       : options.output.module
-        ? "module-import"
-        : "var";
+        ? "module-import" // 模块化导入的方式
+        : "var"; // 传统的外部模块导出方式
   });
 
   applyNodeDefaults(options.node, {
@@ -243,6 +250,7 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     targetProperties,
   });
 
+  // 为 性能分析设置默认，依据构建环境和 targetProperties 动态决定 performance 设置为对象或 false
   F(options, "performance", () =>
     production &&
     targetProperties &&
@@ -250,6 +258,8 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
       ? {}
       : false
   );
+
+  // 为 performance 配置对象设置默认值，如果上一步的配置不是 false
   applyPerformanceDefaults(
     /** @type {NonNullable<WebpackOptionsNormalized["performance"]>} */
     (options.performance),
@@ -258,6 +268,7 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     }
   );
 
+  // 为 webpack 的优化设置配置默认值
   applyOptimizationDefaults(options.optimization, {
     development,
     production,
@@ -267,15 +278,14 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     records: Boolean(options.recordsInputPath || options.recordsOutputPath),
   });
 
+  // 智能合并 Webpack 的 resolve 和 resolveLoader 选项的默认设置与用户自定义配置
   options.resolve = cleverMerge(
     getResolveDefaults({
       cache,
-      context: /** @type {Context} */ (options.context),
+      context: options.context,
       targetProperties,
-      mode: /** @type {Mode} */ (options.mode),
-      css:
-        /** @type {NonNullable<ExperimentsNormalized["css"]>} */
-        (options.experiments.css),
+      mode: options.mode,
+      css: options.experiments.css,
     }),
     options.resolve
   );
@@ -285,6 +295,7 @@ const applyWebpackOptionsDefaults = (options, compilerIndex) => {
     options.resolveLoader
   );
 
+  // 构造一个包含目标平台信息的对象
   return {
     platform:
       targetProperties === false
@@ -577,20 +588,21 @@ const applyJavascriptParserOptionsDefaults = (
 };
 
 /**
- * @param {CssGeneratorOptions} generatorOptions generator options
- * @param {object} options options
- * @param {TargetProperties | false} options.targetProperties target properties
- * @returns {void}
+ * 用于设置 CSS 生成器的默认选项
  */
 const applyCssGeneratorOptionsDefaults = (
   generatorOptions,
   { targetProperties }
 ) => {
+  // 决定是否只导出 CSS 文件中实际使用的部分,false 导出全部
+  // 在特定环境下（如不在浏览器环境或没有 document 属性），避免导出未被使用的内容，优化代码体积
   D(
     generatorOptions,
     "exportsOnly",
     !targetProperties || !targetProperties.document
   );
+
+  // 生成的 CSS 模块使用 ES Module 的导出语法
   D(generatorOptions, "esModule", true);
 };
 
@@ -1304,40 +1316,47 @@ const applyOutputDefaults = (
 };
 
 /**
- * @param {ExternalsPresets} externalsPresets options
- * @param {object} options options
- * @param {TargetProperties | false} options.targetProperties target properties
- * @param {boolean} options.buildHttp buildHttp experiment enabled
- * @returns {void}
+ * 用于设置 externalsPresets 的默认配置项，以支持不同的运行环境（如 web、node、electron 等）和扩展配置
  */
 const applyExternalsPresetsDefaults = (
   externalsPresets,
   { targetProperties, buildHttp }
 ) => {
+  // 当 buildHttp 不启用并且 targetProperties.web 存在时，
+  // 设置 web 为 true，表示外部模块支持 Web 环境
   D(
     externalsPresets,
     "web",
     /** @type {boolean | undefined} */
     (!buildHttp && targetProperties && targetProperties.web)
   );
+
+  // 目标属性对象支持node，将node 设置为 true，表示支持 Node.js 环境
   D(
     externalsPresets,
     "node",
     /** @type {boolean | undefined} */
     (targetProperties && targetProperties.node)
   );
+
+  // 表示支持 nwjs 环境
+  // NW.js 是基于 Chromium 和 Node.js 的桌面应用框架
   D(
     externalsPresets,
     "nwjs",
     /** @type {boolean | undefined} */
     (targetProperties && targetProperties.nwjs)
   );
+
+  /** 下面几个是针对 electron 的配置 --------------------------------- */
+  // 表示支持 Electron
   D(
     externalsPresets,
     "electron",
     /** @type {boolean | undefined} */
     (targetProperties && targetProperties.electron)
   );
+  // 表示支持 Electron 主进程
   D(
     externalsPresets,
     "electronMain",
@@ -1348,6 +1367,8 @@ const applyExternalsPresetsDefaults = (
         targetProperties.electronMain
     )
   );
+
+  // 表示支持 Electron 预加载进程
   D(
     externalsPresets,
     "electronPreload",
@@ -1358,6 +1379,8 @@ const applyExternalsPresetsDefaults = (
         targetProperties.electronPreload
     )
   );
+
+  // 表示支持 Electron 渲染进程
   D(
     externalsPresets,
     "electronRenderer",
@@ -1371,11 +1394,8 @@ const applyExternalsPresetsDefaults = (
 };
 
 /**
- * @param {Loader} loader options
- * @param {object} options options
- * @param {TargetProperties | false} options.targetProperties target properties
- * @param {Environment} options.environment environment
- * @returns {void}
+ * 用于为 loader 对象设置默认属性值
+ * 定义了 loader 的目标环境（例如 electron、nwjs、node 等）以及环境变量
  */
 const applyLoaderDefaults = (loader, { targetProperties, environment }) => {
   F(loader, "target", () => {
@@ -1395,27 +1415,34 @@ const applyLoaderDefaults = (loader, { targetProperties, environment }) => {
 };
 
 /**
- * @param {WebpackNode} node options
- * @param {object} options options
- * @param {TargetProperties | false} options.targetProperties target properties
- * @param {boolean} options.futureDefaults is future defaults enabled
- * @param {boolean} options.outputModule is output type is module
- * @returns {void}
+ * 为 Webpack 中的 node 配置项提供默认值
+ * 主要处理 global、__filename 和 __dirname 这三个属性
+ *
+ * 此函数的主要作用是基于不同的配置参数,为 node 配置项提供合理的默认值。
+ * 这在构建时帮助 Webpack 模拟 Node.js 的一些全局变量，
+ * 特别是 global、__filename 和 __dirname，以支持多种运行环境
  */
 const applyNodeDefaults = (
-  node,
-  { futureDefaults, outputModule, targetProperties }
+  node, // Webpack 配置中用于模拟 Node.js 环境的属性
+  { futureDefaults, outputModule, targetProperties } // 环境信息
 ) => {
+  // 直接返回，不应用任何默认配置
   if (node === false) return;
 
+  // 设置 node.global 的默认值
   F(node, "global", () => {
     if (targetProperties && targetProperties.global) return false;
     // TODO webpack 6 should always default to false
     return futureDefaults ? "warn" : true;
   });
 
+  // 返回 __filename 和 __dirname 的默认值
   const handlerForNames = () => {
     if (targetProperties && targetProperties.node)
+      /**
+       * node-module：将模块类型设置为 Node 风格的模块
+       * eval-only：只允许在 eval 环境中使用
+       */
       return outputModule ? "node-module" : "eval-only";
     // TODO webpack 6 should always default to false
     return futureDefaults ? "warn-mock" : "mock";
@@ -1426,35 +1453,48 @@ const applyNodeDefaults = (
 };
 
 /**
+ * 为 performance 配置对象设置默认值
  * @param {Performance} performance options
  * @param {object} options options
  * @param {boolean} options.production is production
  * @returns {void}
  */
 const applyPerformanceDefaults = (performance, { production }) => {
+  // 如果禁用性能分析 直接返回
   if (performance === false) return;
+
+  // 限制单个静态资源文件的最大体积（250 KB），超出该体积时 Webpack 会在构建完成时发出提示
   D(performance, "maxAssetSize", 250000);
+  // 限制入口点的资源总大小，即一个入口点包含的所有资源文件大小的总和
   D(performance, "maxEntrypointSize", 250000);
+  // 控制 Webpack 是否输出性能提示
   F(performance, "hints", () => (production ? "warning" : false));
 };
 
 /**
- * @param {Optimization} optimization options
- * @param {object} options options
- * @param {boolean} options.production is production
- * @param {boolean} options.development is development
- * @param {boolean} options.css is css enabled
- * @param {boolean} options.records using records
- * @returns {void}
+ * 主要用于 Webpack 的优化设置 (optimization) 中，将不同的默认值应用到相关配置项中，
+ * 依据环境条件（如生产或开发环境）进行合理调整
  */
 const applyOptimizationDefaults = (
   optimization,
   { production, development, css, records }
 ) => {
+  // 禁用移除可用模块
   D(optimization, "removeAvailableModules", false);
+  // 启用移除空 chunk 的功能
   D(optimization, "removeEmptyChunks", true);
+  // 启用合并重复的 chunk，减少冗余
   D(optimization, "mergeDuplicateChunks", true);
+  // 在生产环境下标记已包含的 chunk
   D(optimization, "flagIncludedChunks", production);
+
+  /**
+   * 模块 ID 和 Chunk ID 配置
+   *
+   * - 生产环境使用 deterministic（确保构建内容一致的 ID 分配）
+   * - 开发环境使用 named 以便于调试
+   * - 默认情况下使用 natural，即自然排序的 ID
+   */
   F(optimization, "moduleIds", () => {
     if (production) return "deterministic";
     if (development) return "named";
@@ -1465,18 +1505,35 @@ const applyOptimizationDefaults = (
     if (development) return "named";
     return "natural";
   });
+
+  // 生产环境下，启用 sideEffects 以移除无副作用代码，开发环境则只标记副作用
   F(optimization, "sideEffects", () => (production ? true : "flag"));
+
+  // 模块、导出、内图、变量混淆等优化，生产环境下会开启，开发环境下关闭
   D(optimization, "providedExports", true);
   D(optimization, "usedExports", production);
   D(optimization, "innerGraph", production);
   D(optimization, "mangleExports", production);
   D(optimization, "concatenateModules", production);
+
+  /** 运行时和错误配置 -------------------------------------------------- */
+  // 在生产环境关闭此功能，以确保模块分割
   D(optimization, "runtimeChunk", false);
+  // 在开发环境保留错误输出
   D(optimization, "emitOnErrors", !production);
+  // 生产环境下进行 WebAssembly 类型检查
   D(optimization, "checkWasmTypes", production);
+  // 禁用对 WebAssembly 导入的混淆
   D(optimization, "mangleWasmImports", false);
+
+  /** 记录文件和内容哈希 ---------------------------------------------------- */
+  // 使用记录文件生成可移植的模块 ID 和 chunk ID
   D(optimization, "portableRecords", records);
+  // 使用基于内容的哈希以确保缓存的有效性（生产环境）
   D(optimization, "realContentHash", production);
+
+  /** 代码压缩 -------------------------------------------------------------- */
+  // 生产环境下启用 minimize，利用 TerserPlugin 进行代码压缩，减少最终打包体积
   D(optimization, "minimize", production);
   A(optimization, "minimizer", () => [
     {
@@ -1493,35 +1550,60 @@ const applyOptimizationDefaults = (
       },
     },
   ]);
+
+  // 环境变量设置
   F(optimization, "nodeEnv", () => {
     if (production) return "production";
     if (development) return "development";
     return false;
   });
+
+  /** splitChunks 配置 --------------------------------------------------- */
   const { splitChunks } = optimization;
+  /**
+   * 配置 splitChunks，其目的是在 Webpack 优化时拆分代码，按需加载模块，以减少打包后的文件大小和加载时间
+   */
   if (splitChunks) {
+    // 定义要优化的模块类型
+    // 若项目包含 CSS，则还包括 css，unknown 则表示支持未知模块类型，确保打包时能适应不同资源类型
     A(splitChunks, "defaultSizeTypes", () =>
       css ? ["javascript", "css", "unknown"] : ["javascript", "unknown"]
     );
+
+    // 在生产环境中将文件路径信息从输出中移除，提升文件路径隐私
     D(splitChunks, "hidePathInfo", production);
+    // 设为 async，表示只拆分异步导入的模块，避免同步模块分块影响页面加载
     D(splitChunks, "chunks", "async");
+
+    // 是否优化使用的导出
     D(splitChunks, "usedExports", optimization.usedExports === true);
+    // 设置模块被引用的最小次数为 1，即模块至少被引用一次时才会进行分割
     D(splitChunks, "minChunks", 1);
+    // 设置块的最小尺寸，生产环境下为 20000，开发环境为 10000，以更合理地分块
     F(splitChunks, "minSize", () => (production ? 20000 : 10000));
+    // 在开发环境下为 0，即不强制最小剩余大小，以增强调试灵活性
     F(splitChunks, "minRemainingSize", () => (development ? 0 : undefined));
+
+    // 强制分块的大小阈值，生产环境设为 50000，开发环境为 30000
     F(splitChunks, "enforceSizeThreshold", () => (production ? 50000 : 30000));
+    // 生产环境最大异步请求和初始请求数为 30，开发环境为 Infinity，表示无限制
     F(splitChunks, "maxAsyncRequests", () => (production ? 30 : Infinity));
     F(splitChunks, "maxInitialRequests", () => (production ? 30 : Infinity));
+    // 分块名称的分隔符，默认 "-" 用于生成更直观的分块名称
     D(splitChunks, "automaticNameDelimiter", "-");
-    const cacheGroups =
-      /** @type {NonNullable<OptimizationSplitChunksOptions["cacheGroups"]>} */
-      (splitChunks.cacheGroups);
+
+    // 定义两个缓存组 default 和 defaultVendors，分别处理通用模块和第三方模块分组
+    const cacheGroups = splitChunks.cacheGroups;
+
+    // 用于通用模块，复用已存在的块
     F(cacheGroups, "default", () => ({
       idHint: "",
       reuseExistingChunk: true,
-      minChunks: 2,
-      priority: -20,
+      minChunks: 2, // 模块至少被使用两次时会被缓存
+      priority: -20, // 优先级为 -20
     }));
+
+    // 用于 node_modules 内的第三方模块，优先级较高为 -10，以便第三方依赖被优先提取到 vendors 缓存中
     F(cacheGroups, "defaultVendors", () => ({
       idHint: "vendors",
       reuseExistingChunk: true,
@@ -1532,26 +1614,21 @@ const applyOptimizationDefaults = (
 };
 
 /**
- * @param {object} options options
- * @param {boolean} options.cache is cache enable
- * @param {string} options.context build context
- * @param {TargetProperties | false} options.targetProperties target properties
- * @param {Mode} options.mode mode
- * @param {boolean} options.css is css enabled
- * @returns {ResolveOptions} resolve options
+ * 生成 Webpack 的解析选项,会根据传入的参数动态调整，以适应不同的构建环境和目标平台
  */
 const getResolveDefaults = ({
-  cache,
-  context,
-  targetProperties,
-  mode,
-  css,
+  cache, // 缓存配置
+  context, // 当前的上下文路径，用于解析模块
+  targetProperties, // 指定目标平台的属性对象
+  mode, // 构建模式
+  css, // 是否处理 CSS
 }) => {
-  /** @type {string[]} */
+  /** 条件数组 */
   const conditions = ["webpack"];
 
   conditions.push(mode === "development" ? "development" : "production");
 
+  // 根据目标属性构建条件
   if (targetProperties) {
     if (targetProperties.webworker) conditions.push("worker");
     if (targetProperties.node) conditions.push("node");
@@ -1560,20 +1637,23 @@ const getResolveDefaults = ({
     if (targetProperties.nwjs) conditions.push("nwjs");
   }
 
+  /** js 文件的扩展名,用于在解析时使用 */
   const jsExtensions = [".js", ".json", ".wasm"];
 
+  // 确定是否启用浏览器字段（browser），当且仅当满足特定条件时（如支持 web，且不是 Node.js）
   const tp = targetProperties;
   const browserField =
     tp && tp.web && (!tp.node || (tp.electron && tp.electronRenderer));
 
-  /** @type {function(): ResolveOptions} */
+  /** 处理 cjs 依赖 */
   const cjsDeps = () => ({
     aliasFields: browserField ? ["browser"] : [],
     mainFields: browserField ? ["browser", "module", "..."] : ["module", "..."],
     conditionNames: ["require", "module", "..."],
     extensions: [...jsExtensions],
   });
-  /** @type {function(): ResolveOptions} */
+
+  /** 处理 esm 依赖 */
   const esmDeps = () => ({
     aliasFields: browserField ? ["browser"] : [],
     mainFields: browserField ? ["browser", "module", "..."] : ["module", "..."],
@@ -1581,24 +1661,39 @@ const getResolveDefaults = ({
     extensions: [...jsExtensions],
   });
 
-  /** @type {ResolveOptions} */
+  // 构建 解析配置项
   const resolveOptions = {
+    // 启用或禁用缓存机制。这可以加快模块解析的速度，通过存储已经解析的模块来避免重复工作
     cache,
+    // 指定查找模块的目录,Webpack 将在 node_modules 文件夹中查找依赖模块
     modules: ["node_modules"],
+    // 解析模块时要考虑的条件名称
     conditionNames: conditions,
+    // 指定目录中的主文件名，默认值为 ["index"]。当模块解析时，Webpack 将优先查找这些文件
     mainFiles: ["index"],
+
+    // 在查找模块时自动添加的文件扩展名,这里为空数组,通常通过后续的配置来填充
     extensions: [],
+    // 模块的别名字段
     aliasFields: [],
+    // 在解析过程中要查找的 exports 字段。这里设置为 ["exports"]，
+    // 表示将尝试从模块的 package.json 文件中的 exports 字段查找导出
     exportsFields: ["exports"],
+    // 用于模块解析的根目录。这里使用了传入的 context，表示模块解析的起始位置
     roots: [context],
+    // 在解析过程中要查找的主要字段。这里设置为 ["main"]，
+    // 意味着会从模块的 package.json 文件中查找 main 字段以确定入口文件
     mainFields: ["main"],
+    // 在解析过程中要查找的导入字段。此处设置为 ["imports"]，表示会查找模块的 imports 字段
     importsFields: ["imports"],
+
+    // 根据不同的依赖类型（如 ESM、CommonJS 等）来处理模块解析的具体方式
     byDependency: {
       wasm: esmDeps(),
       esm: esmDeps(),
       loaderImport: esmDeps(),
       url: {
-        preferRelative: true,
+        preferRelative: true, // 表示相对路径优先
       },
       worker: {
         ...esmDeps(),
@@ -1615,21 +1710,35 @@ const getResolveDefaults = ({
     },
   };
 
+  // 为 css 解析添加相关的配置
   if (css) {
+    /** 用于解析 CSS 文件时的决策 */
     const styleConditions = [];
 
+    // 解析时需要考虑 Webpack 特定的条件
     styleConditions.push("webpack");
+    // 根据不同的环境来选择合适的模块版本或解析策略
     styleConditions.push(mode === "development" ? "development" : "production");
+    // 处理样式文件的解析
     styleConditions.push("style");
 
+    // 影响 Webpack 在解析 CSS 导入时的行为
     resolveOptions.byDependency["css-import"] = {
       // We avoid using any main files because we have to be consistent with CSS `@import`
       // and CSS `@import` does not handle `main` files in directories,
       // you should always specify the full URL for styles
+      /**
+       * 设置为空数组,表示不使用任何主文件
+       * 这是因为 CSS 的 @import 语法不支持主文件的概念，因此需要显式指定导入的完整 URL
+       */
       mainFiles: [],
+      // 在解析 CSS 文件时，会优先查找 package.json 中的 style 字段，确保加载适合样式的模块
       mainFields: ["style", "..."],
+      // 告知 Webpack 在解析 CSS 时要考虑这些条件
       conditionNames: styleConditions,
+      // 在查找模块时，WebPack 将自动考虑 .css 文件扩展名
       extensions: [".css"],
+      // 优先使用相对路径
       preferRelative: true,
     };
   }
