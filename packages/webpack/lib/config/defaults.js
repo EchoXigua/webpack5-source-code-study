@@ -528,34 +528,51 @@ const applySnapshotDefaults = (snapshot, { production, futureDefaults }) => {
 };
 
 /**
- * @param {JavascriptParserOptions} parserOptions parser options
- * @param {object} options options
- * @param {boolean} options.futureDefaults is future defaults enabled
- * @param {boolean} options.isNode is node target platform
- * @returns {void}
+ * 为 JavaScript 解析器选项设置默认值，确保在解析 JavaScript 模块时拥有合理的默认行为
  */
 const applyJavascriptParserOptionsDefaults = (
   parserOptions,
   { futureDefaults, isNode }
 ) => {
+  // 默认为 "." 用于未知上下文的默认请求路径，通常是当前目录
   D(parserOptions, "unknownContextRequest", ".");
+  // 默认为 false 表示未知上下文的正则匹配设置，false 表示不匹配任何内容
   D(parserOptions, "unknownContextRegExp", false);
+
+  // 默认为 true 表示是否递归解析未知上下文中的依赖
   D(parserOptions, "unknownContextRecursive", true);
+  // 默认为 true 若设置为 true，在处理未知上下文时会产生警告
   D(parserOptions, "unknownContextCritical", true);
+  // 默认为 "." 用于表达式上下文的默认请求路径
   D(parserOptions, "exprContextRequest", ".");
+  // 默认为 false 表示不匹配任何表达式上下文
   D(parserOptions, "exprContextRegExp", false);
+  // 默认为 true 是否递归解析表达式上下文
   D(parserOptions, "exprContextRecursive", true);
+  // 默认为 true 表示表达式上下文是否会引发警告
   D(parserOptions, "exprContextCritical", true);
+  // 默认为 /.*/ 此正则匹配所有内容，用于包裹上下文的正则匹配
   D(parserOptions, "wrappedContextRegExp", /.*/);
+  // 默认为 true 是否递归解析包裹上下文
   D(parserOptions, "wrappedContextRecursive", true);
+  // 默认为 false 表示包裹上下文不会产生警告
   D(parserOptions, "wrappedContextCritical", false);
+  // 默认为 false 在导入中不强制 this 上下文为严格模式
   D(parserOptions, "strictThisContextOnImports", false);
+
+  // 默认为 true 支持 import.meta 对象
   D(parserOptions, "importMeta", true);
+  // 默认为 "lazy" 表示动态导入以懒加载方式进行
   D(parserOptions, "dynamicImportMode", "lazy");
+  // 动态导入的预取和预加载行为 默认为 false，通常在优化资源加载时使用
   D(parserOptions, "dynamicImportPrefetch", false);
   D(parserOptions, "dynamicImportPreload", false);
   D(parserOptions, "dynamicImportFetchPriority", false);
+
+  // 在 Node.js 环境下为 true，表示可以在模块中使用 createRequire 函数
   D(parserOptions, "createRequire", isNode);
+
+  // 如果采用未来的默认值，当导出项在模块中不存在时，将抛出错误，这是更严格的检查规则
   if (futureDefaults) D(parserOptions, "exportsPresence", "error");
 };
 
@@ -796,44 +813,73 @@ const applyModuleDefaults = (
         // 优先使用相对路径进行模块解析，有助于确保 CSS 文件的依赖关系按相对路径加载
         preferRelative: true,
       };
+
+      // 匹配 css 结尾的文件
       rules.push({
         test: /\.css$/i,
+        // Webpack 自动检测是否将 CSS 文件视作 CSS 模块处理
+        // 文件名中包含 .module. 或 .modules.，则将其作为 CSS 模块
         type: CSS_MODULE_TYPE_AUTO,
         resolve,
       });
+
       rules.push({
+        // 需要 hash 处理的 CSS 模块文件
         mimetype: "text/css+module",
+        // 这是 CSS 模块文件，Webpack 将自动对文件中的 CSS 类名进行哈希处理
         type: CSS_MODULE_TYPE_MODULE,
         resolve,
       });
+
+      // 普通的 CSS 文件，不会对 CSS 类名进行任何哈希处理
       rules.push({
         mimetype: "text/css",
         type: CSS_MODULE_TYPE,
         resolve,
       });
     }
+
     rules.push(
       {
+        // 应用于模块依赖为 url 的资源（例如通过 import 或 require 引用的外部资源）
         dependency: "url",
+        // 通过 oneOf 指定了两种处理方案
         oneOf: [
           {
+            // 匹配 scheme 为 data 的资源 即Data URI 格式的资源，如 base64 格式的图像
             scheme: /^data$/,
+            // 将资源嵌入为 Data URL 内联数据，以减少 HTTP 请求
             type: "asset/inline",
           },
           {
+            // 对于其他 URL 资源（非 Data URI 格式的资源）
+            // 将资源复制到构建输出目录并生成对应的引用
             type: "asset/resource",
           },
         ],
       },
       {
+        // 以 assert 方式声明资源类型为 JSON 的模块
         assert: { type: "json" },
+        // 将模块类型设置为 JSON
         type: JSON_MODULE_TYPE,
       },
       {
+        // 以 with 方式声明资源类型为 JSON 的模块
         with: { type: "json" },
+        // 将模块类型设置为 JSON
         type: JSON_MODULE_TYPE,
       }
     );
+
+    /**
+     * - CSS 规则：根据文件后缀、mimetype 指定不同的 CSS 文件处理方式，
+     * 支持普通 CSS 文件、CSS 模块文件以及根据文件名自动识别 CSS 模块
+     *
+     * - URL 资源规则：支持内联和外部资源的不同处理方式
+     *
+     * - JSON 文件规则：增加了对 assert 和 with 的 JSON 文件声明方式的支持
+     */
     return rules;
   });
 };
