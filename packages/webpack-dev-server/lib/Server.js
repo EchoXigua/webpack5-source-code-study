@@ -75,31 +75,35 @@ class Server {
   }
 
   /**
-   * @param {string} URL
-   * @returns {boolean}
+   * 用于判断给定的 URL 字符串是否是绝对路径
    */
   static isAbsoluteURL(URL) {
-    // Don't match Windows paths `c:\`
+    // 正则表达式检查是否符合 Windows 文件路径的格式，例如 C:\ 或 D:\
+    // 如果是 Windows 文件路径格式，直接返回 false，因为这是一个本地路径而不是 URL
     if (/^[a-zA-Z]:\\/.test(URL)) {
       return false;
     }
 
     // Scheme: https://tools.ietf.org/html/rfc3986#section-3.1
     // Absolute URL: https://tools.ietf.org/html/rfc3986#section-4.3
+    /**
+     * 正则表达式匹配是否是 URL 的“协议”部分，即判断 URL 是否以 [协议名]: 开头
+     */
     return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(URL);
   }
 
   /**
+   * 用于查找或创建 webpack-dev-server 的缓存目录
    * @returns {string}
    */
   static findCacheDir() {
+    // 获取当前的工作目录路径,即执行到这里代码的起始目录
     const cwd = process.cwd();
 
-    /**
-     * @type {string | undefined}
-     */
+    /** 初始化 dir 为当前目录，后续用于循环递归查找 package.json 文件 */
     let dir = cwd;
 
+    // 无限循环，递归向上查找
     for (;;) {
       try {
         if (fs.statSync(path.join(dir, "package.json")).isFile()) break;
@@ -117,29 +121,37 @@ class Server {
       dir = parent;
     }
 
+    // 退出训话，要么是找到了，要么是找到了顶层目录（此时 dir 为 undefined）
+
     if (!dir) {
+      // 这说明找到了顶层目录，在工作目录下面添加缓存目录
       return path.resolve(cwd, ".cache/webpack-dev-server");
     } else if (process.versions.pnp === "1") {
+      // 这里都是找到了 缓存目录，只不过根据 yarn 的 pnp 版本的不同做不同的缓存目录处理
       return path.resolve(dir, ".pnp/.cache/webpack-dev-server");
     } else if (process.versions.pnp === "3") {
       return path.resolve(dir, ".yarn/.cache/webpack-dev-server");
     }
 
+    // 如果都不满足，则缓存在 node_modules 下
     return path.resolve(dir, "node_modules/.cache/webpack-dev-server");
   }
 
   /**
+   * 用于判断给定的 compiler（编译器）对象的编译目标是否为 Web 平台
    * @private
    * @param {Compiler} compiler
    * @returns bool
    */
   static isWebTarget(compiler) {
+    // 编译器实例中明确定义了 web 且为true 则返回这个
     if (compiler.platform && compiler.platform.web) {
       return compiler.platform.web;
     }
 
-    // TODO improve for the next major version and keep only `webTargets` to fallback for old versions
+    //  TODO改进下一个主要版本，只保留‘ webTargets ’回退到旧版本
     if (
+      // 这说明已经明确配置为 web
       compiler.options.externalsPresets &&
       compiler.options.externalsPresets.web
     ) {
@@ -147,12 +159,14 @@ class Server {
     }
 
     if (
+      // 包含浏览器，也说明是 web
       compiler.options.resolve.conditionNames &&
       compiler.options.resolve.conditionNames.includes("browser")
     ) {
       return true;
     }
 
+    // 包含一些 Web 相关的编译目标
     const webTargets = [
       "web",
       "webworker",
@@ -169,7 +183,11 @@ class Server {
       return compiler.options.target.some((r) => webTargets.includes(r));
     }
 
-    return webTargets.includes(/** @type {string} */ (compiler.options.target));
+    return webTargets.includes(compiler.options.target);
+  }
+
+  static get schema() {
+    return schema;
   }
 
   /**
@@ -269,8 +287,13 @@ class Server {
     }
   }
 
-  static get schema() {
-    return schema;
+  /**
+   * @param {(err?: Error) => void} [callback]
+   */
+  startCallback(callback = () => {}) {
+    this.start()
+      .then(() => callback(), callback)
+      .catch(callback);
   }
 
   /**
@@ -2347,6 +2370,77 @@ class Server {
 
     // 将创建的 watcher 对象保存到 staticWatchers 数组中，以便后续控制或清理这些监听器
     this.staticWatchers.push(watcher);
+  }
+
+  /**
+   * 向 WebSocket 客户端发送消息，用于实时通信，通常用于开发环境下的热更新服务
+   * @param {*} clients 客户端连接列表
+   * @param {*} type 消息类型，通常用于指示消息的目的
+   * @param {*} data 发送的数据内容
+   * @param {*} params 其他附加参数
+   */
+  sendMessage(clients, type, data, params) {
+    // 遍历每个客户端对象
+    for (const client of clients) {
+      // sockjs 和 ws 都使用 1 来表示客户端准备就绪
+      if (client.readyState === 1) {
+        // readyState 为 1 表示连接已打开，客户端可以接收消息
+        client.send(JSON.stringify({ type, data, params }));
+      }
+    }
+  }
+
+  // Send stats to a socket or multiple sockets
+  /**
+   * 向客户端发送构建统计信息，通常是 Webpack 的编译结果
+   * @private
+   * @param {ClientConnection[]} clients 客户端连接列表
+   * @param {StatsCompilation} stats  Webpack 编译的统计信息对象
+   * @param {boolean} [force] 是否强制发送信息
+   */
+  sendStats(clients, stats, force) {
+    // 决定是否需要发送信息，force 为true，忽略此条件，强制发送消息
+    const shouldEmit =
+      !force &&
+      stats &&
+      (!stats.errors || stats.errors.length === 0) &&
+      (!stats.warnings || stats.warnings.length === 0) &&
+      this.currentHash === stats.hash;
+
+    // 如果 shouldEmit 为 true，则表示构建没有变化且没有错误或警告，
+    // 直接向客户端发送 "still-ok" 信息，并返回结束该方法
+    if (shouldEmit) {
+      this.sendMessage(clients, "still-ok");
+
+      return;
+    }
+
+    // 更新哈希
+    this.currentHash = stats.hash;
+    // 将新哈希发送给所有客户端，以标识构建的版本变化
+    this.sendMessage(clients, "hash", stats.hash);
+
+    // 检查是否存在错误或警告信息
+    if (stats.errors.length > 0 || stats.warnings.length > 0) {
+      const hasErrors = stats.errors.length > 0;
+
+      if (stats.warnings.length > 0) {
+        let params;
+
+        if (hasErrors) {
+          params = { preventReloading: true };
+        }
+
+        this.sendMessage(clients, "warnings", stats.warnings, params);
+      }
+
+      if (stats.errors.length > 0) {
+        this.sendMessage(clients, "errors", stats.errors);
+      }
+    } else {
+      // 向客户端发送 "ok"，表明构建完成且没有问题
+      this.sendMessage(clients, "ok");
+    }
   }
 }
 
