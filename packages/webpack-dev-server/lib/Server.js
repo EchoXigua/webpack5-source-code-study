@@ -1746,30 +1746,27 @@ class Server {
    */
   setupMiddlewares() {
     /**
-     * @type {Array<Middleware>}
+     * 放中间件对象，每个中间件对象都包含 name 和 middleware 两个属性
+     * - name：中间件的名称，方便标识
+     * - middleware：中间件函数，用于处理请求
      */
     let middlewares = [];
 
-    // Register setup host header check for security
+    // 注册 host-header-check 这个中间件，
+    // 主要用于检查请求的 Host 或 :authority（在 HTTP/2 中使用的头部字段）
     middlewares.push({
       name: "host-header-check",
-      /**
-       * @param {Request} req
-       * @param {Response} res
-       * @param {NextFunction} next
-       * @returns {void}
-       */
       middleware: (req, res, next) => {
-        const headers =
-          /** @type {{ [key: string]: string | undefined }} */
-          (req.headers);
+        const headers = req.headers;
         const headerName = headers[":authority"] ? ":authority" : "host";
 
+        // 检查指定的头部是否有效
         if (this.checkHeader(headers, headerName)) {
           next();
           return;
         }
 
+        // 终止响应，头部不合法
         res.statusCode = 403;
         res.end("Invalid Host header");
       },
@@ -1779,68 +1776,73 @@ class Server {
       /** @type {ServerConfiguration<A, S>} */ (this.options.server).type ===
       "http2";
 
+    // 检查当前服务器配置中的协议类型是否为 http2
     if (isHTTP2) {
       // TODO patch for https://github.com/pillarjs/finalhandler/pull/45, need remove then will be resolved
+      // 对于 http2 需要进行额外的兼容性处理
       middlewares.push({
         name: "http2-status-message-patch",
-        middleware:
-          /** @type {NextHandleFunction} */
-          (_req, res, next) => {
-            Object.defineProperty(res, "statusMessage", {
-              get() {
-                return "";
-              },
-              set() {},
-            });
+        middleware: (_req, res, next) => {
+          // 解决在 res.statusMessage 设置或获取时可能出现的问题
+          Object.defineProperty(res, "statusMessage", {
+            get() {
+              return "";
+            },
+            set() {},
+          });
 
-            next();
-          },
+          next();
+        },
       });
     }
 
     // compress is placed last and uses unshift so that it will be the first middleware used
+    // 压缩中间件
     if (this.options.compress && !isHTTP2) {
       const compression = require("compression");
 
       middlewares.push({ name: "compression", middleware: compression() });
     }
 
+    // 设置响应头中间件
     if (typeof this.options.headers !== "undefined") {
       middlewares.push({
         name: "set-headers",
+        // 动态设置请求的响应头
         middleware: this.setHeaders.bind(this),
       });
     }
 
+    // 注册 webpack-dev-middleware 中间件，用于拦截和处理 Webpack 打包输出到内存中的资源请求
+    // 使得打包后的文件在内存中快速读取，支持实时更新
     middlewares.push({
       name: "webpack-dev-middleware",
-      middleware: /** @type {MiddlewareHandler} */ (this.middleware),
+      middleware: this.middleware,
     });
 
-    // Should be after `webpack-dev-middleware`, otherwise other middlewares might rewrite response
+    // 应该在‘ webpack-dev-middleware ’之后，否则其他中间件可能会重写响应
+    // SockJS 客户端脚本传输中间件
+    // 为 "/__webpack_dev_server__/sockjs.bundle.js" 路径上的请求提供 SockJS 客户端的 JavaScript 文件
     middlewares.push({
       name: "webpack-dev-server-sockjs-bundle",
       path: "/__webpack_dev_server__/sockjs.bundle.js",
-      /**
-       * @param {Request} req
-       * @param {Response} res
-       * @param {NextFunction} next
-       * @returns {void}
-       */
       middleware: (req, res, next) => {
+        // 通过 GET 或 HEAD 方法检查请求是否是用于获取资源
         if (req.method !== "GET" && req.method !== "HEAD") {
           next();
           return;
         }
 
+        // 定义了 clientPath 路径指向 sockjs-client 的客户端文件
         const clientPath = path.join(
           __dirname,
           "..",
           "client/modules/sockjs-client/index.js"
         );
 
-        // Express send Etag and other headers by default, so let's keep them for compatibility reasons
+        // 默认情况下Express发送Etag和其他头文件，所以出于兼容性的考虑，我们保留它们
         if (typeof res.sendFile === "function") {
+          // sendFile 方法可用，将这个文件发送给客户端
           res.sendFile(clientPath);
           return;
         }
@@ -1849,54 +1851,66 @@ class Server {
 
         try {
           // TODO implement `inputFileSystem.createReadStream` in webpack
+          // 获取文件 clientPath 的文件信息
           stats = fs.statSync(clientPath);
         } catch (err) {
           next();
           return;
         }
 
+        // 设置响应头，表示返回的内容为 js 文件，浏览器会按照js 文件进行解析
         res.setHeader("Content-Type", "application/javascript; charset=UTF-8");
+        // 文件的字节大小
         res.setHeader("Content-Length", stats.size);
 
+        // 请求方法是 HEAD（只请求头部信息，不需要具体内容），直接关闭请求
         if (req.method === "HEAD") {
           res.end();
           return;
         }
 
+        // 创建一个只读的文件流，可以逐步读取文件内容，通过 pipe 管道将文件流直接传输给客户端
         fs.createReadStream(clientPath).pipe(res);
+
+        /**
+         * fs.createReadStream 是 Node.js 文件系统模块（fs）中的方法,用于创建一个文件读取流，逐步读取文件的内容
+         * 避免将整个文件加载到内存中，非常适合大文件传输
+         * pipe 是流对象上常用的方法，用于将一个流的输出直接传递到另一个流的输入
+         *
+         * res 是 HTTP 响应对象（也是一个流），表示客户端的请求响应通道
+         *
+         *
+         * pipe(res) 会将读取到的内容逐步写入res，边读取文件内容边发送给客户端
+         * 流在读取完成时会自动触发 end 事件，pipe 方法会监听 end 事件。
+         * 当读取完文件数据后，pipe 会自动停止写入，连接也会随之关闭
+         */
       },
     });
 
+    // 这个中间件的主要功能是手动触发 Webpack 的重新编译，通常用于实时开发时的构建失效处理
     middlewares.push({
       name: "webpack-dev-server-invalidate",
+      // 当请求这个路径时，会触发重新编译
       path: "/webpack-dev-server/invalidate",
-      /**
-       * @param {Request} req
-       * @param {Response} res
-       * @param {NextFunction} next
-       * @returns {void}
-       */
       middleware: (req, res, next) => {
+        // 仅接受 GET 或 HEAD 请求方法，其他请求直接进入下一个中间件
         if (req.method !== "GET" && req.method !== "HEAD") {
           next();
           return;
         }
 
+        // 触发重新编译，这通常会让 Webpack 重新生成打包文件并发送更新内容到客户端
         this.invalidate();
 
+        // 结束当前请求
         res.end();
       },
     });
 
+    // 这个中间件允许开发者直接从浏览器中打开代码编辑器并跳转到指定的文件（例如错误的源文件），为快速定位和修复代码提供便利
     middlewares.push({
       name: "webpack-dev-server-open-editor",
       path: "/webpack-dev-server/open-editor",
-      /**
-       * @param {Request} req
-       * @param {Response} res
-       * @param {NextFunction} next
-       * @returns {void}
-       */
       middleware: (req, res, next) => {
         if (req.method !== "GET" && req.method !== "HEAD") {
           next();
@@ -1914,8 +1928,10 @@ class Server {
 
         if (typeof fileName === "string") {
           // @ts-ignore
+          // launch-editor 是一个工具，用于在开发者的默认代码编辑器中打开指定文件
           const launchEditor = require("launch-editor");
 
+          // 将启动开发者的默认编辑器并打开该文件
           launchEditor(fileName);
         }
 
@@ -1923,15 +1939,11 @@ class Server {
       },
     });
 
+    // 这个中间件目的是在 /webpack-dev-server 路径上生成一个包含构建资源信息的简单 HTML 页面。
+    // 这通常用于开发环境下快速查看 Webpack 生成的文件列表和路径，便于开发者确认静态资源文件是否正确生成
     middlewares.push({
       name: "webpack-dev-server-assets",
       path: "/webpack-dev-server",
-      /**
-       * @param {Request} req
-       * @param {Response} res
-       * @param {NextFunction} next
-       * @returns {void}
-       */
       middleware: (req, res, next) => {
         if (req.method !== "GET" && req.method !== "HEAD") {
           next();
@@ -1943,38 +1955,47 @@ class Server {
           return;
         }
 
+        // 确保构建完成后再生成 HTML 报告
         this.middleware.waitUntilValid((stats) => {
+          // 声明返回内容是 UTF-8 编码的 HTML 页面
           res.setHeader("Content-Type", "text/html; charset=utf-8");
 
-          // HEAD requests should not return body content
+          // 对于 HEAD 请求，直接调用 res.end()，不返回任何内容
           if (req.method === "HEAD") {
             res.end();
             return;
           }
 
+          // 写入 html 基础结构
           res.write(
             '<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body>'
           );
 
           /**
-           * @type {StatsCompilation[]}
+           * 这块代码的目的是从 Webpack 的 stats 对象中获取编译后的静态资源信息，
+           * 并将这些信息格式化成一个 HTML 页面内容，以供开发者查看 Webpack 构建输出的资源清单
            */
-          const statsForPrint =
-            typeof (/** @type {MultiStats} */ (stats).stats) !== "undefined"
-              ? /** @type {NonNullable<StatsCompilation["children"]>} */
-                (/** @type {MultiStats} */ (stats).toJson().children)
-              : [/** @type {Stats} */ (stats).toJson()];
 
+          // stats 对象包含 Webpack 构建的完整信息
+          const statsForPrint =
+            // stats.stats：如果存在，表示这是一个多编译（multi-compiler）模式的构建，即 Webpack 同时构建多个配置文件
+            typeof stats.stats !== "undefined"
+              ? // 在多编译模式中，children 包含了每个单独的编译配置的输出信息
+                stats.toJson().children
+              : // 是单一编译，则直接调用 toJson() 获取构建信息，并将其封装成数组，以便后续统一处理。
+                [stats.toJson()];
+
+          // 写入 HTML 标题，显示“Assets Report”，作为报告的标题
           res.write(`<h1>Assets Report:</h1>`);
 
+          // 遍历每个编译配置的输出信息
           for (const [index, item] of statsForPrint.entries()) {
             res.write("<div>");
 
             const name =
-              // eslint-disable-next-line no-nested-ternary
               typeof item.name !== "undefined"
                 ? item.name
-                : /** @type {MultiStats} */ (stats).stats
+                : stats.stats
                   ? `unnamed[${index}]`
                   : "unnamed";
 
@@ -1983,9 +2004,7 @@ class Server {
 
             const publicPath =
               item.publicPath === "auto" ? "" : item.publicPath;
-            const assets =
-              /** @type {NonNullable<StatsCompilation["assets"]>} */
-              (item.assets);
+            const assets = item.assets;
 
             for (const asset of assets) {
               const assetName = asset.name;
@@ -2007,30 +2026,30 @@ class Server {
       },
     });
 
+    // 对 proxy 的处理，主要是通过第三方库 http-proxy-middleware 来完成代理（请求转发）
     if (this.options.proxy) {
       const { createProxyMiddleware } = require("http-proxy-middleware");
 
       /**
-       * @param {ProxyConfigArrayItem} proxyConfig
-       * @returns {RequestHandler | undefined}
+       * 创建一个代理中间件，根据传入的配置来生成对应的代理中间件
        */
       const getProxyMiddleware = (proxyConfig) => {
-        // It is possible to use the `bypass` method without a `target` or `router`.
-        // However, the proxy middleware has no use in this case, and will fail to instantiate.
+        // 在没有 target 和 router 的情况下使用 bypass 是可能的，但是代理中间件在这种情况下没有且无法实例化
+        // 如果有target 说明是要转发到其服务器地址上
         if (proxyConfig.target) {
+          // 获取上下文信息
           const context = proxyConfig.context || proxyConfig.path;
 
-          return createProxyMiddleware(
-            /** @type {string} */ (context),
-            proxyConfig
-          );
+          // 创建代理中间件
+          return createProxyMiddleware(context, proxyConfig);
         }
 
+        // 如果存在 router 也会创建代理中间件
         if (proxyConfig.router) {
           return createProxyMiddleware(proxyConfig);
         }
 
-        // TODO improve me after drop `bypass` to always generate error when configuration is bad
+        // 如果配置中既没有 target 也没有 router，则认为配置有误，并发出弃用警告
         if (!proxyConfig.bypass) {
           util.deprecate(
             () => {},
@@ -2055,36 +2074,34 @@ class Server {
        *     };
        *   }
        * ]
+       *
+       * 遍历 proxy 配置项
        */
       this.options.proxy.forEach((proxyConfigOrCallback) => {
-        /**
-         * @type {RequestHandler}
-         */
         let proxyMiddleware;
 
+        // 如果传入的配置是函数，则调用获取配置，否则直接使用其配置
         let proxyConfig =
           typeof proxyConfigOrCallback === "function"
             ? proxyConfigOrCallback()
             : proxyConfigOrCallback;
 
-        proxyMiddleware =
-          /** @type {RequestHandler} */
-          (getProxyMiddleware(proxyConfig));
+        // 创建代理中间件
+        proxyMiddleware = getProxyMiddleware(proxyConfig);
 
+        // 说明配置了 ws 代理
         if (proxyConfig.ws) {
+          // 将这个中间件添加到 ws 代理数组中
           this.webSocketProxies.push(proxyMiddleware);
         }
 
-        /**
-         * @param {Request} req
-         * @param {Response} res
-         * @param {NextFunction} next
-         * @returns {Promise<void>}
-         */
+        // 中间件中的处理函数
         const handler = async (req, res, next) => {
+          // 如果传入的配置是函数，则每次请求时都会调用
           if (typeof proxyConfigOrCallback === "function") {
             const newProxyConfig = proxyConfigOrCallback(req, res, next);
 
+            // 如果新配置与当前配置不同，则更新配置
             if (newProxyConfig !== proxyConfig) {
               proxyConfig = newProxyConfig;
 
@@ -2092,13 +2109,13 @@ class Server {
               // @ts-ignore
               const server = socket != null ? socket.server : null;
 
+              // 还会移除与 server 相关的所有事件监听器，以确保新的代理配置生效
               if (server) {
                 server.removeAllListeners("close");
               }
 
-              proxyMiddleware =
-                /** @type {RequestHandler} */
-                (getProxyMiddleware(proxyConfig));
+              // 创建新的代理中间件
+              proxyMiddleware = getProxyMiddleware(proxyConfig);
             }
           }
 
@@ -2106,6 +2123,8 @@ class Server {
           // - In case the bypass function is defined we'll retrieve the
           // bypassUrl from it otherwise bypassUrl would be null
           // TODO remove in the next major in favor `context` and `router` options
+
+          // 配置中定义了 bypass 函数（用于跳过代理）
           const isByPassFuncDefined = typeof proxyConfig.bypass === "function";
           if (isByPassFuncDefined) {
             util.deprecate(
@@ -2114,30 +2133,30 @@ class Server {
               "DEP_WEBPACK_DEV_SERVER_PROXY_BYPASS_ARGUMENT"
             )();
           }
+
+          // 调用改函数
           const bypassUrl = isByPassFuncDefined
-            ? await /** @type {ByPass} */ (proxyConfig.bypass)(
-                req,
-                res,
-                proxyConfig
-              )
+            ? await proxyConfig.bypass(req, res, proxyConfig)
             : null;
 
           if (typeof bypassUrl === "boolean") {
-            // skip the proxy
+            // 如果返回 布尔值，会跳过代理并直接返回 404 响应
             res.statusCode = 404;
             req.url = "";
             next();
           } else if (typeof bypassUrl === "string") {
-            // byPass to that url
+            // 返回一个字符串，会将请求重定向到该 URL
             req.url = bypassUrl;
             next();
           } else if (proxyMiddleware) {
+            // 没有定义 bypass，且存在有效的代理中间件，则执行该中间件进行请求转发
             return proxyMiddleware(req, res, next);
           } else {
             next();
           }
         };
 
+        //  将代理处理的中间件和错误处理的中间件加入到中间件队列中
         middlewares.push({
           name: "http-proxy-middleware",
           middleware: handler,
@@ -2146,31 +2165,34 @@ class Server {
         // Also forward error requests to the proxy so it can handle them.
         middlewares.push({
           name: "http-proxy-middleware-error-handler",
-          middleware:
-            /**
-             * @param {Error} error
-             * @param {Request} req
-             * @param {Response} res
-             * @param {NextFunction} next
-             * @returns {any}
-             */
-            (error, req, res, next) => handler(req, res, next),
+          middleware: (error, req, res, next) => handler(req, res, next),
         });
       });
 
+      /**
+       * 上面遍历的代码总的来说做了以下的一些事情：
+       * 1. 根据配置动态生成代理中间件
+       * 2. 支持 WebSocket 和普通 HTTP 请求的代理
+       * 3. 支持 bypass 函数跳过代理请求或进行 URL 重定向
+       * 4. 处理代理请求时动态更新配置，并且支持错误处理中间件
+       * 5. 最后将 Webpack 开发中间件添加到中间件队列中，确保 Webpack 的资源能够正确地返回给客户端
+       */
+
+      // 添加 Webpack 开发中间件，用于处理 Webpack 编译后的资源
       middlewares.push({
         name: "webpack-dev-middleware",
-        middleware: /** @type {MiddlewareHandler} */ (this.middleware),
+        middleware: this.middleware,
       });
     }
 
-    const staticOptions =
-      /** @type {NormalizedStatic[]} */
-      (this.options.static);
+    // 静态资源配置项
+    const staticOptions = this.options.static;
 
     if (staticOptions.length > 0) {
+      // 为每个 staticOption 配置项创建静态文件服务
       for (const staticOption of staticOptions) {
         for (const publicPath of staticOption.publicPath) {
+          // 使用 express.static 中间件提供静态文件服务
           middlewares.push({
             name: "express-static",
             path: publicPath,
@@ -2183,19 +2205,17 @@ class Server {
       }
     }
 
+    // 处理前端单页应用（SPA）路由，确保当路由不存在时，回退到 index.html 页面
+    // 这对于 SPA 中使用 HTML5 的 history API 进行路由的应用非常重要
     if (this.options.historyApiFallback) {
+      // 如果启用了回退，使用第三方库来完成
       const connectHistoryApiFallback = require("connect-history-api-fallback");
       const { historyApiFallback } = this.options;
 
+      // 如果回退配置没有定义日志，则使用默认的日志
       if (
-        typeof (
-          /** @type {ConnectHistoryApiFallbackOptions} */
-          (historyApiFallback).logger
-        ) === "undefined" &&
-        !(
-          /** @type {ConnectHistoryApiFallbackOptions} */
-          (historyApiFallback).verbose
-        )
+        typeof historyApiFallback.logger === "undefined" &&
+        !historyApiFallback.verbose
       ) {
         // @ts-ignore
         historyApiFallback.logger = this.logger.log.bind(
@@ -2204,22 +2224,21 @@ class Server {
         );
       }
 
-      // Fall back to /index.html if nothing else matches.
+      // connect-history-api-fallback 会拦截请求，当没有找到匹配的文件时，
+      // 会自动将请求重定向到 /index.html，以便 SPA 路由能够继续处理。
       middlewares.push({
         name: "connect-history-api-fallback",
-        middleware: connectHistoryApiFallback(
-          /** @type {ConnectHistoryApiFallbackOptions} */
-          (historyApiFallback)
-        ),
+        middleware: connectHistoryApiFallback(historyApiFallback),
       });
 
-      // include our middleware to ensure
-      // it is able to handle '/index.html' request after redirect
+      // 它能够处理重定向后的‘/index.html’请求
       middlewares.push({
         name: "webpack-dev-middleware",
-        middleware: /** @type {MiddlewareHandler} */ (this.middleware),
+        middleware: this.middleware,
       });
 
+      // 再次处理静态文件中间件（重复代码）
+      // 为了确保在某些条件下能够再次添加静态文件服务
       if (staticOptions.length > 0) {
         for (const staticOption of staticOptions) {
           for (const publicPath of staticOption.publicPath) {
@@ -2237,31 +2256,31 @@ class Server {
     }
 
     if (staticOptions.length > 0) {
+      /**
+       * serve-index 是一个用于生成目录索引的库，允许展示目录列表而不是直接返回文件。
+       * 它通常用于文件浏览的场景，启用了 serveIndex，则创建一个中间件，
+       * 拦截 GET 和 HEAD 请求，调用 serveIndex 来展示目录中的文件
+       */
       const serveIndex = require("serve-index");
 
       for (const staticOption of staticOptions) {
         for (const publicPath of staticOption.publicPath) {
+          // 配置了 serveIndex，则为静态文件目录生成一个索引页面，允许用户浏览目录中的文件
           if (staticOption.serveIndex) {
             middlewares.push({
               name: "serve-index",
               path: publicPath,
-              /**
-               * @param {Request} req
-               * @param {Response} res
-               * @param {NextFunction} next
-               * @returns {void}
-               */
               middleware: (req, res, next) => {
                 // serve-index doesn't fallthrough non-get/head request to next middleware
                 if (req.method !== "GET" && req.method !== "HEAD") {
                   return next();
                 }
 
-                serveIndex(
-                  staticOption.directory,
-                  /** @type {ServeIndexOptions} */
-                  (staticOption.serveIndex)
-                )(req, res, next);
+                serveIndex(staticOption.directory, staticOption.serveIndex)(
+                  req,
+                  res,
+                  next
+                );
               },
             });
           }
@@ -2269,19 +2288,12 @@ class Server {
       }
     }
 
-    // Register this middleware always as the last one so that it's only used as a
-    // fallback when no other middleware responses.
+    // 将此中间件始终注册为最后一个中间件，以便仅在没有其他中间件响应时将其用作回退
     middlewares.push({
       name: "options-middleware",
-      /**
-       * @param {Request} req
-       * @param {Response} res
-       * @param {NextFunction} next
-       * @returns {void}
-       */
       middleware: (req, res, next) => {
         if (req.method === "OPTIONS") {
-          res.statusCode = 204;
+          res.statusCode = 204; // 表示没有返回内容
           res.setHeader("Content-Length", "0");
           res.end();
           return;
@@ -2290,17 +2302,19 @@ class Server {
       },
     });
 
+    // 允许开发者在 Webpack Dev Server 配置中通过 setupMiddlewares 函数自定义中间件
+    // 注入自定义的中间件，从而修改请求处理的流程或添加特定的功能
     if (typeof this.options.setupMiddlewares === "function") {
       middlewares = this.options.setupMiddlewares(middlewares, this);
     }
 
-    // Lazy init webpack dev middleware
+    // 延迟初始化 Webpack Dev Middleware，直到真正需要它时才进行初始化
     const lazyInitDevMiddleware = () => {
+      // 检查中间件是否被初始化,没有的话则初始化
       if (!this.middleware) {
         const webpackDevMiddleware = require("webpack-dev-middleware");
 
-        // middleware for serving webpack bundle
-        /** @type {import("webpack-dev-middleware").API<Request, Response>} */
+        // 用于服务webpack bundle的中间件
         this.middleware = webpackDevMiddleware(
           this.compiler,
           this.options.devMiddleware
@@ -2311,8 +2325,9 @@ class Server {
     };
 
     for (const i of middlewares) {
+      // 确保 webpack-dev-middleware 只会在第一次使用时进行初始化，避免重复初始化
       if (i.name === "webpack-dev-middleware") {
-        const item = /** @type {MiddlewareObject} */ (i);
+        const item = i;
 
         if (typeof item.middleware === "undefined") {
           item.middleware = lazyInitDevMiddleware();
@@ -2320,26 +2335,14 @@ class Server {
       }
     }
 
+    // 注册所有的中间件
     for (const middleware of middlewares) {
       if (typeof middleware === "function") {
-        /** @type {A} */
-        (this.app).use(
-          /** @type {NextHandleFunction | HandleFunction} */
-          (middleware)
-        );
+        this.app.use(middleware);
       } else if (typeof middleware.path !== "undefined") {
-        /** @type {A} */
-        (this.app).use(
-          middleware.path,
-          /** @type {SimpleHandleFunction | NextHandleFunction} */
-          (middleware.middleware)
-        );
+        this.app.use(middleware.path, middleware.middleware);
       } else {
-        /** @type {A} */
-        (this.app).use(
-          /** @type {NextHandleFunction | HandleFunction} */
-          (middleware.middleware)
-        );
+        this.app.use(middleware.middleware);
       }
     }
   }
@@ -2441,6 +2444,105 @@ class Server {
       // 向客户端发送 "ok"，表明构建完成且没有问题
       this.sendMessage(clients, "ok");
     }
+  }
+
+  /**
+   * @private
+   * @param {{ [key: string]: string | undefined }} headers
+   * @param {string} headerToCheck
+   * @returns {boolean}
+   */
+  checkHeader(headers, headerToCheck) {
+    // allow user to opt out of this security check, at their own risk
+    // by explicitly enabling allowedHosts
+    if (this.options.allowedHosts === "all") {
+      return true;
+    }
+
+    // get the Host header and extract hostname
+    // we don't care about port not matching
+    const hostHeader = headers[headerToCheck];
+
+    if (!hostHeader) {
+      return false;
+    }
+
+    if (/^(file|.+-extension):/i.test(hostHeader)) {
+      return true;
+    }
+
+    // use the node url-parser to retrieve the hostname from the host-header.
+    const hostname = url.parse(
+      // if hostHeader doesn't have scheme, add // for parsing.
+      /^(.+:)?\/\//.test(hostHeader) ? hostHeader : `//${hostHeader}`,
+      false,
+      true
+    ).hostname;
+
+    // always allow requests with explicit IPv4 or IPv6-address.
+    // A note on IPv6 addresses:
+    // hostHeader will always contain the brackets denoting
+    // an IPv6-address in URLs,
+    // these are removed from the hostname in url.parse(),
+    // so we have the pure IPv6-address in hostname.
+    // For convenience, always allow localhost (hostname === 'localhost')
+    // and its subdomains (hostname.endsWith(".localhost")).
+    // allow hostname of listening address  (hostname === this.options.host)
+    const isValidHostname =
+      (hostname !== null && ipaddr.IPv4.isValid(hostname)) ||
+      (hostname !== null && ipaddr.IPv6.isValid(hostname)) ||
+      hostname === "localhost" ||
+      (hostname !== null && hostname.endsWith(".localhost")) ||
+      hostname === this.options.host;
+
+    if (isValidHostname) {
+      return true;
+    }
+
+    const { allowedHosts } = this.options;
+
+    // always allow localhost host, for convenience
+    // allow if hostname is in allowedHosts
+    if (Array.isArray(allowedHosts) && allowedHosts.length > 0) {
+      for (let hostIdx = 0; hostIdx < allowedHosts.length; hostIdx++) {
+        /** @type {string} */
+        const allowedHost = allowedHosts[hostIdx];
+
+        if (allowedHost === hostname) {
+          return true;
+        }
+
+        // support "." as a subdomain wildcard
+        // e.g. ".example.com" will allow "example.com", "www.example.com", "subdomain.example.com", etc
+        if (allowedHost[0] === ".") {
+          // "example.com"  (hostname === allowedHost.substring(1))
+          // "*.example.com"  (hostname.endsWith(allowedHost))
+          if (
+            hostname === allowedHost.substring(1) ||
+            /** @type {string} */ (hostname).endsWith(allowedHost)
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+
+    // Also allow if `client.webSocketURL.hostname` provided
+    if (
+      this.options.client &&
+      typeof (
+        /** @type {ClientConfiguration} */ (this.options.client).webSocketURL
+      ) !== "undefined"
+    ) {
+      return (
+        /** @type {WebSocketURL} */
+        (/** @type {ClientConfiguration} */ (this.options.client).webSocketURL)
+          .hostname === hostname
+      );
+    }
+
+    // disallow
+    return false;
   }
 }
 
