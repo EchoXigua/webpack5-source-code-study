@@ -1,3 +1,7 @@
+const path = require("path");
+const util = require("util");
+const fs = require("graceful-fs");
+
 const ipaddr = require("ipaddr.js");
 
 const { validate } = require("schema-utils");
@@ -1026,6 +1030,59 @@ class Server {
         webSocketServer.options.port = Number(webSocketServer.options.port);
       }
     }
+  }
+
+  /**
+   *
+   * 返回一个 Webpack Compiler 的配置选项
+   * @private
+   * @returns {Compiler["options"]}
+   */
+  getCompilerOptions() {
+    // 存在,说明是多编译器实例
+    if (typeof this.compiler.compilers !== "undefined") {
+      // 当只有一个编译器,则返回第一个
+      if (this.compiler.compilers.length === 1) {
+        return this.compiler.compilers[0].options;
+      }
+
+      // 存在多个,会查找第一个包含 devServer 配置项的编译器
+      const compilerWithDevServer = this.compiler.compilers.find(
+        (config) => config.options.devServer
+      );
+
+      if (compilerWithDevServer) {
+        return compilerWithDevServer.options;
+      }
+
+      // 如果没有找到 devServer 配置，接下来会查找是否有编译器配置使用了 web 预设
+      const compilerWithWebPreset = this.compiler.compilers.find(
+        (config) =>
+          (config.options.externalsPresets &&
+            config.options.externalsPresets.web) ||
+          [
+            "web",
+            "webworker",
+            "electron-preload",
+            "electron-renderer",
+            "node-webkit",
+            // eslint-disable-next-line no-undefined
+            undefined,
+            null,
+          ].includes(/** @type {string} */ (config.options.target))
+      );
+
+      if (compilerWithWebPreset) {
+        return compilerWithWebPreset.options;
+      }
+
+      // 如果没有找到包含 devServer 或 web 预设的编译器，
+      // 最后会返回 compilers 数组中的第一个编译器的 options
+      return this.compiler.compilers[0].options;
+    }
+
+    // 单独的 Compiler 实例，那么直接返回该 Compiler 实例的 options
+    return /** @type {Compiler} */ (this.compiler).options;
   }
 
   /**

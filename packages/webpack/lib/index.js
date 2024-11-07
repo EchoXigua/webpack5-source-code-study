@@ -82,4 +82,14 @@ module.exports = mergeExports(fn, {
   get ValidationError() {
     return require("schema-utils").ValidationError;
   },
+
+  get EntryPlugin() {
+    return require("./EntryPlugin");
+  },
+  get HotModuleReplacementPlugin() {
+    return require("./HotModuleReplacementPlugin");
+  },
+  get ProvidePlugin() {
+    return require("./ProvidePlugin");
+  },
 });
