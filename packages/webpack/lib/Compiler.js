@@ -20,9 +20,9 @@ const Cache = require("./Cache");
 // const ChunkGraph = require("./ChunkGraph");
 // const Compilation = require("./Compilation");
 // const ConcurrentCompilationError = require("./ConcurrentCompilationError");
-// const ContextModuleFactory = require("./ContextModuleFactory");
+const ContextModuleFactory = require("./ContextModuleFactory");
 // const ModuleGraph = require("./ModuleGraph");
-// const NormalModuleFactory = require("./NormalModuleFactory");
+const NormalModuleFactory = require("./NormalModuleFactory");
 const RequestShortener = require("./RequestShortener");
 const ResolverFactory = require("./ResolverFactory");
 // const Stats = require("./Stats");
@@ -1274,75 +1274,102 @@ ${other}`);
   }
 
   createNormalModuleFactory() {
+    // 先清理上次使用的 NormalModuleFactory，确保缓存和资源不会冲突
     this._cleanupLastNormalModuleFactory();
+
+    // 创建一个普通模块工厂实例
     const normalModuleFactory = new NormalModuleFactory({
-      context: this.options.context,
-      fs: /** @type {InputFileSystem} */ (this.inputFileSystem),
-      resolverFactory: this.resolverFactory,
-      options: this.options.module,
-      associatedObjectForCache: this.root,
+      context: this.options.context, // 上下文目录
+      fs: this.inputFileSystem, // 文件系统
+      resolverFactory: this.resolverFactory, // 解析器工厂
+      options: this.options.module, // 模块配置选项
+      associatedObjectForCache: this.root, // 缓存对象
       layers: this.options.experiments.layers,
     });
+
+    // 缓存一份
     this._lastNormalModuleFactory = normalModuleFactory;
+    // 触发 normalModuleFactory 钩子函数，允许插件对 NormalModuleFactory 进行扩展
     this.hooks.normalModuleFactory.call(normalModuleFactory);
     return normalModuleFactory;
   }
 
   createContextModuleFactory() {
+    // 创建上下文模块实例
     const contextModuleFactory = new ContextModuleFactory(this.resolverFactory);
+    // 触发钩子
     this.hooks.contextModuleFactory.call(contextModuleFactory);
     return contextModuleFactory;
   }
 
   newCompilationParams() {
     const params = {
+      // 用于处理常规模块（如 JS、CSS 等资源模块）
       normalModuleFactory: this.createNormalModuleFactory(),
+      // 用于处理上下文模块（require.context 引入的模块集合）
       contextModuleFactory: this.createContextModuleFactory(),
     };
     return params;
   }
 
   /**
+   * 这个方法是 Webpack 的核心编译流程的主要入口之一，
+   * 用于初始化编译过程、执行插件钩子、以及生成和封装编译结果
    * @param {RunCallback<Compilation>} callback signals when the compilation finishes
    * @returns {void}
    */
   compile(callback) {
+    // 创建新的编译参数 params，包含当前编译过程中所需的环境参数，供后续步骤使用
     const params = this.newCompilationParams();
+
+    // 触发 beforeCompile 异步钩子，传递 params 给插件
     this.hooks.beforeCompile.callAsync(params, (err) => {
       if (err) return callback(err);
 
+      // 调用 compile 同步钩子，告知所有监听 compile 的插件编译过程即将开始，
+      // 这一步仅仅是通知，没有异步回调
       this.hooks.compile.call(params);
 
+      // 创建新的 compilation 实例，表示一个具体的编译过程，
+      // 包含了当前构建所需的全部资源、模块和依赖信息，所有的构建操作都会记录到这个 compilation 实例中
       const compilation = this.newCompilation(params);
 
       const logger = compilation.getLogger("webpack.Compiler");
 
+      // 调用 make 异步钩子，让插件能在 make 阶段进行资源构建
       logger.time("make hook");
       this.hooks.make.callAsync(compilation, (err) => {
         logger.timeEnd("make hook");
         if (err) return callback(err);
 
+        // 调用 finishMake 异步钩子，让插件在 finishMake 阶段执行额外操作，比如在模块构建完成后处理更多逻辑
         logger.time("finish make hook");
         this.hooks.finishMake.callAsync(compilation, (err) => {
           logger.timeEnd("finish make hook");
           if (err) return callback(err);
 
+          // 将 finish 操作放在下一个事件循环，延迟执行，确保所有钩子完成
           process.nextTick(() => {
             logger.time("finish compilation");
+            // finish 方法会执行一些收尾操作，比如将资源的模块与依赖关系整理完整
             compilation.finish((err) => {
               logger.timeEnd("finish compilation");
               if (err) return callback(err);
 
+              // 调用 seal 方法封装 compilation，完成整个编译过程的资源打包和依赖分析
+              // seal 的过程涉及最终打包文件的生成
               logger.time("seal compilation");
               compilation.seal((err) => {
                 logger.timeEnd("seal compilation");
                 if (err) return callback(err);
 
+                // 调用 afterCompile 钩子，让插件在编译完成后执行最终处理
                 logger.time("afterCompile hook");
                 this.hooks.afterCompile.callAsync(compilation, (err) => {
                   logger.timeEnd("afterCompile hook");
                   if (err) return callback(err);
 
+                  // 调用最终的 callback，将生成的 compilation 实例作为结果返回，标志整个编译流程的结束
                   return callback(null, compilation);
                 });
               });

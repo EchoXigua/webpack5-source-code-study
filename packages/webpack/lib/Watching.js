@@ -312,6 +312,206 @@ class Watching {
   }
 
   /**
+   * 这个函数是 Webpack 源码中负责处理编译任务完成后的回调函数，它会在构建流程结束时执行，
+   * 以处理编译结果、调用插件钩子并释放相关资源
+   * @param {(Error | null)=} err an optional error
+   * @param {Compilation=} compilation the compilation
+   * @returns {void}
+   */
+  _done(err, compilation) {
+    // 标记当前 Webpack 的编译任务不再运行，意味着可以准备下一次构建任务
+    this.running = false;
+
+    const logger = compilation && compilation.getLogger("webpack.Watching");
+
+    /**
+     * 存放当前编译任务的统计信息
+     */
+    let stats;
+
+    /**
+     * 内部错误处理函数，用于处理构建过程中的错误
+     * @param {Error} err error
+     * @param {Callback<void>[]=} cbs callbacks
+     */
+    const handleError = (err, cbs) => {
+      //  调用 failed 钩子，通知插件有错误发生
+      this.compiler.hooks.failed.call(err);
+      // 将缓存状态标记为空闲，以便准备下一次使用
+      this.compiler.cache.beginIdle();
+      // 标记当前为空闲
+      this.compiler.idle = true;
+      this.handler(err, stats);
+
+      if (!cbs) {
+        cbs = this.callbacks;
+        this.callbacks = [];
+      }
+
+      // 每个回调函数都将被调用，通知所有监听者错误状态
+      for (const cb of cbs) cb(err);
+    };
+
+    // 检查是否需要重新构建
+    if (
+      // 检查当前构建是否被标记为无效
+      this.invalid &&
+      // 没有暂停
+      !this.suspended &&
+      // 没有阻塞
+      !this.blocked &&
+      !(this._isBlocked() && (this.blocked = true))
+    ) {
+      if (compilation) {
+        // 将本次构建的依赖信息缓存起来
+        logger.time("storeBuildDependencies");
+        this.compiler.cache.storeBuildDependencies(
+          compilation.buildDependencies,
+          (err) => {
+            logger.timeEnd("storeBuildDependencies");
+            if (err) return handleError(err);
+            this._go();
+          }
+        );
+      } else {
+        // 执行下一个构建流程
+        this._go();
+      }
+      return;
+    }
+
+    // 记录编译的开始和结束时间
+    if (compilation) {
+      // 将本次任务的 startTime 和 endTime 记录在 compilation 对象
+      compilation.startTime = /** @type {number} */ (this.startTime);
+      compilation.endTime = Date.now();
+      stats = new Stats(compilation);
+    }
+    // 表示当前构建已完成
+    this.startTime = null;
+    // 若有错误发生 调用错误处理函数
+    if (err) return handleError(err);
+
+    // 保存一份回调函数数组
+    const cbs = this.callbacks;
+    this.callbacks = [];
+    logger.time("done hook");
+    // 触发 done 钩子，通知所有插件当前编译已完成
+    this.compiler.hooks.done.callAsync(stats, (err) => {
+      logger.timeEnd("done hook");
+      if (err) return handleError(err, cbs);
+      this.handler(null, stats);
+
+      // 缓存构建的依赖项，以便 Webpack 可以更高效地进行增量编译
+      logger.time("storeBuildDependencies");
+      this.compiler.cache.storeBuildDependencies(
+        compilation.buildDependencies,
+        (err) => {
+          logger.timeEnd("storeBuildDependencies");
+          if (err) return handleError(err, cbs);
+          // 存储过程中无错误发生，则将编译器状态标记为空闲
+          logger.time("beginIdle");
+          this.compiler.cache.beginIdle();
+          this.compiler.idle = true;
+          logger.timeEnd("beginIdle");
+
+          // 将编译器恢复到文件监听模式
+          process.nextTick(() => {
+            if (!this.closed) {
+              // 监听所有构建依赖项
+              this.watch(
+                compilation.fileDependencies,
+                compilation.contextDependencies,
+                compilation.missingDependencies
+              );
+            }
+          });
+
+          // 遍历并调用每个回调函数，通知构建完成
+          for (const cb of cbs) cb(null);
+          // 调用 afterDone 钩子，通知插件构建过程已完全结束
+          this.compiler.hooks.afterDone.call(stats);
+        }
+      );
+    });
+  }
+
+  /**
+   * 这个方法的主要作用是在 Webpack 的监听模式下启动文件监控，
+   * 以便实时捕获文件的改动，并触发对应的编译流程
+   * @returns {void}
+   */
+  watch(files, dirs, missing) {
+    // 确保当前没有暂停的监听器
+    this.pausedWatcher = null;
+    this.watcher =
+      /**
+       * 开始监听指定的文件和目录
+       * @type {WatchFileSystem} */
+      (this.compiler.watchFileSystem).watch(
+        files, // 当前编译过程中涉及的文件列表
+        dirs, // 需要监控的目录
+        missing, // 缺失的依赖项列表
+        /** @type {number} */ (this.lastWatcherStartTime), // 上次开始监听的时间戳
+        this.watchOptions, // 监听的配置项（如延迟等参数）
+        (
+          err,
+          fileTimeInfoEntries,
+          contextTimeInfoEntries,
+          changedFiles,
+          removedFiles
+        ) => {
+          // 文件变化后的回调函数，用于处理文件改动事件
+          if (err) {
+            this.compiler.modifiedFiles = undefined;
+            this.compiler.removedFiles = undefined;
+            this.compiler.fileTimestamps = undefined;
+            this.compiler.contextTimestamps = undefined;
+            this.compiler.fsStartTime = undefined;
+            return this.handler(err);
+          }
+
+          // 将文件时间信息、改动文件和删除文件的信息传递给下一步的编译流程，
+          // 使编译器意识到文件发生了改动
+          this._invalidate(
+            fileTimeInfoEntries,
+            contextTimeInfoEntries,
+            changedFiles,
+            removedFiles
+          );
+
+          // 通知编译器文件发生变化，以触发重新编译
+          this._onChange();
+        },
+        (fileName, changeTime) => {
+          // 文件失效时的回调函数
+          if (!this._invalidReported) {
+            this._invalidReported = true;
+            //  触发 invalid 钩子通知插件当前文件失效
+            this.compiler.hooks.invalid.call(fileName, changeTime);
+          }
+          this._onInvalid();
+        }
+      );
+  }
+
+  /**
+   * @param {Callback<void>=} callback signals when the build has completed again
+   * @returns {void}
+   */
+  invalidate(callback) {
+    if (callback) {
+      this.callbacks.push(callback);
+    }
+    if (!this._invalidReported) {
+      this._invalidReported = true;
+      this.compiler.hooks.invalid.call(null, Date.now());
+    }
+    this._onChange();
+    this._invalidate();
+  }
+
+  /**
    * 用于处理文件或上下文信息发生变动时的逻辑
    * 根据监视器的当前状态，决定是否立即处理这些变动，或者将变动信息暂存等待下次处理
    * @param {TimeInfoEntries=} fileTimeInfoEntries 文件的时间信息
